@@ -1,0 +1,1566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GTM Jeopardy</title>
+<meta name="description" content="A go-to-market trivia game. 10 categories, 5 per board, 20 seconds a clue. Built by PG Smith of The Kiln by 2X.">
+<meta property="og:title" content="GTM Jeopardy">
+<meta property="og:description" content="10 categories, 5 per game, 20 seconds a clue. Can you clear the board?">
+<meta property="og:type" content="website">
+<style>html,body{margin:0;padding:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Bitter:wght@700;800&family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;700;900&display=swap">
+<style>
+/* One full-viewport game world. Screens swap inside it; nothing is a card on a page. */
+:root{
+  --jblue:#5e2039;        /* plum: the Sculpt box */
+  --jblue-mid:#471528;
+  --jblue-deep:#2d0c19;
+  --jgold:#c8e64b;        /* lime: the Sculpt accent */
+  --jgold-dim:#8ba52c;
+  --jwhite:#f6f1e8;       /* cream */
+  --jshadow:#1a0710;
+  --lime:#c8e64b;
+  --plum:#8fb0e8;
+  --lav:#c4a6e8;
+  --font-slab:'Anton',Impact,'Haettenschweiler','Arial Narrow Bold',sans-serif;
+  --font-bubble:'Fredoka','Baloo 2',-apple-system,'Segoe UI',sans-serif;
+  --font-clue:'Bitter',Georgia,'Times New Roman',serif;
+  --font-ui:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+  color-scheme:dark;
+}
+html,body{min-height:100%}
+body{
+  margin:0;color:var(--jwhite);
+  background:radial-gradient(120% 80% at 50% -10%, #b04a6c 0%, #6d2742 38%, #4a1628 70%, #2d0c19 100%);
+  background-attachment:fixed;
+  font-family:var(--font-ui);-webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+button{font-family:inherit;cursor:pointer}
+
+.fx{position:fixed;inset:0;pointer-events:none;z-index:1}
+#stars{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;opacity:.5}
+/* The win/lose particle burst used to be drawn on #stars at z-1, i.e. BEHIND the
+   whole game (z-2), bursting from the dead centre of the screen where the clue and
+   the answers are. The payoff was invisible. It gets its own canvas, over the top. */
+#burstfx{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:8}
+/* z-1, not z-6/z-7. These used to paint OVER every screen, so the vignette
+   dimmed the HUD and board edges by up to 80% and the scanlines striped all type.
+   Atmosphere belongs behind the content, not on top of it. */
+.vignette{
+  position:fixed;inset:0;pointer-events:none;z-index:1;
+  background:radial-gradient(130% 95% at 50% 42%, transparent 38%, rgba(0,2,30,.42) 78%, rgba(0,1,14,.8) 100%);
+}
+.scan{
+  position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.14;
+  background:repeating-linear-gradient(180deg, rgba(255,255,255,.055) 0 1px, transparent 1px 3px);
+}
+.spot{
+  position:fixed;left:50%;top:-28vh;width:130vw;height:92vh;transform:translateX(-50%);
+  pointer-events:none;z-index:1;opacity:.5;
+  background:radial-gradient(50% 50% at 50% 50%, rgba(196,166,232,.28), transparent 70%);
+  animation:spotdrift 13s ease-in-out infinite alternate;
+}
+@keyframes spotdrift{from{transform:translateX(-54%) scale(1)}to{transform:translateX(-46%) scale(1.09)}}
+
+/* tile -> clue expansion.
+   The old version was a solid opaque lime slab whose opacity transition was
+   delayed 300ms while the element was destroyed at exactly 300ms, so the fade
+   never rendered a single frame and the block just vanished mid-flight. It read
+   as a glitch. Driven by the Web Animations API now so the timings cannot drift
+   apart, and it lands on the real clue card instead of an arbitrary rectangle. */
+.expander{
+  position:fixed;z-index:9;pointer-events:none;
+  background:linear-gradient(177deg,var(--jgold),var(--jgold-dim));
+  box-shadow:0 18px 50px rgba(0,0,0,.45);
+  transform-origin:top left;will-change:transform,opacity;
+}
+
+/* daily double */
+.dd{
+  position:fixed;inset:0;z-index:10;display:grid;place-items:center;cursor:pointer;
+  background:radial-gradient(120% 90% at 50% 40%, #9c4260, var(--jblue-deep));
+  animation:ddIn .34s cubic-bezier(.2,.9,.3,1.2) both;
+}
+.dd[hidden]{display:none!important}
+@keyframes ddIn{from{opacity:0;transform:scale(1.25) rotate(2deg)}to{opacity:1;transform:none}}
+.ddinner{text-align:center;padding:24px}
+.ddmark{
+  font-family:var(--font-slab);font-size:clamp(40px,11vw,130px);line-height:.86;text-transform:uppercase;
+  color:var(--jgold);text-shadow:4px 7px 0 var(--jshadow);margin:0;transform:rotate(-2deg);
+}
+.ddsub{font-family:var(--font-clue);font-weight:800;letter-spacing:.26em;text-transform:uppercase;font-size:clamp(11px,1.7vw,16px);color:var(--lime);margin:18px 0 0}
+.ddval{font-family:var(--font-slab);font-size:clamp(26px,5vw,54px);color:#fff;margin:14px 0 0;text-shadow:3px 4px 0 var(--jshadow)}
+.ddhint{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.6);margin:26px 0 0;font-weight:700;animation:blink 1.5s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* screen flash */
+.flash{position:fixed;inset:0;z-index:8;pointer-events:none;opacity:0}
+.flash.good{animation:fl .5s ease-out;background:radial-gradient(70% 55% at 50% 50%, rgba(200,230,75,.55), transparent 72%)}
+.flash.bad{animation:fl .5s ease-out;background:radial-gradient(70% 55% at 50% 50%, rgba(143,176,232,.5), transparent 72%)}
+@keyframes fl{0%{opacity:.95}100%{opacity:0}}
+
+.world{
+  position:relative;z-index:2;min-height:100dvh;box-sizing:border-box;
+  display:flex;flex-direction:column;
+  background:transparent;
+  /* was overflow:hidden, which clipped the title off the top and cut the credit
+     line below the fold with no way to scroll to either. Clip sideways only. */
+  overflow-x:clip;
+}
+
+@keyframes drift{from{background-position:0 0}to{background-position:0 -760px}}
+
+/* thin HUD, only during play */
+.hud{
+  position:relative;z-index:3;display:flex;align-items:center;justify-content:space-between;
+  gap:12px;padding:14px clamp(14px,3vw,28px);
+  padding-top:calc(14px + env(safe-area-inset-top,0px));
+}
+.hud[hidden]{display:none!important}
+.hudscore{display:flex;align-items:baseline;gap:10px}
+.hudscore .lab{font-size:10px;font-weight:900;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.6)}
+.hudscore .val{font-family:var(--font-slab);font-size:clamp(24px,3.6vw,38px);color:var(--jgold);text-shadow:2px 3px 0 var(--jshadow)}
+.hudscore .val.neg{color:#ff6b6b}
+.hudright{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.iconbtn{
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:50%;
+  width:38px;height:38px;display:grid;place-items:center;font-size:16px;line-height:1;padding:0;
+}
+.iconbtn:hover{border-color:var(--jgold);color:var(--jgold)}
+.iconbtn[aria-pressed="false"]{opacity:.4}
+.ghost{
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:999px;
+  padding:8px 15px;font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+}
+.ghost:hover{border-color:var(--jgold);color:var(--jgold)}
+.opbar[hidden]{display:none!important}
+.opbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.modeswitch{display:flex;border:1px solid rgba(255,255,255,.28);border-radius:999px;overflow:hidden}
+.modeswitch button{background:transparent;border:0;color:rgba(255,255,255,.7);padding:8px 14px;font-size:11px;font-weight:900;letter-spacing:.09em;text-transform:uppercase}
+.modeswitch button[aria-pressed="true"]{background:var(--jgold);color:#191400}
+
+/* screens */
+/* flex:1 0 auto, not flex:1 — the screen must be allowed to grow past the viewport
+   so centred content taller than the screen scrolls instead of being clipped. */
+.screen{position:relative;z-index:2;flex:1 0 auto;display:flex;flex-direction:column}
+.screen[hidden]{display:none!important}
+.pad{box-sizing:border-box;width:100%;padding-inline:clamp(16px,3.4vw,40px);
+  padding-top:clamp(18px,3vh,30px);
+  padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}
+
+/* ---- home ---- */
+#scHome{align-items:center;justify-content:center;text-align:center}
+.markwrap{position:relative;display:inline-block;margin-bottom:4px}
+.mark{
+  font-family:var(--font-bubble);font-weight:700;font-size:clamp(44px,12vw,156px);line-height:.9;letter-spacing:-.01em;
+  text-transform:uppercase;color:var(--jgold);
+  text-shadow:0 2px 0 #a9c93c,0 4px 0 #8ba52c,0 6px 0 #6e8420,4px 10px 0 var(--jshadow),0 0 52px rgba(200,230,75,.3);
+  margin:0;transform:rotate(-2deg);animation:markIn .75s cubic-bezier(.2,.9,.3,1.25);
+  position:relative;overflow:hidden;
+}
+@keyframes markIn{0%{transform:scale(.5) rotate(-7deg)}62%{transform:scale(1.07) rotate(1.5deg)}100%{transform:scale(1) rotate(-2deg)}}
+/* ---- Sculpt blobs: the gooey shapes from the badge ---- */
+.blobs{position:fixed;inset:-14%;z-index:0;pointer-events:none;filter:blur(62px) saturate(1.35);opacity:.92}
+.blob{position:absolute;display:block;mix-blend-mode:screen}
+@keyframes drift1{0%,100%{transform:translate(0,0) scale(1) rotate(0deg);border-radius:58% 42% 63% 37%/44% 58% 42% 56%}
+  33%{transform:translate(7vw,-5vh) scale(1.14) rotate(42deg);border-radius:42% 58% 38% 62%/62% 38% 62% 38%}
+  66%{transform:translate(-5vw,6vh) scale(.92) rotate(-28deg);border-radius:66% 34% 48% 52%/38% 64% 36% 62%}}
+@keyframes drift2{0%,100%{transform:translate(0,0) scale(1.05) rotate(0deg);border-radius:48% 52% 36% 64%/58% 36% 64% 42%}
+  40%{transform:translate(-8vw,7vh) scale(.9) rotate(-50deg);border-radius:62% 38% 58% 42%/36% 62% 38% 64%}
+  75%{transform:translate(6vw,-4vh) scale(1.2) rotate(34deg);border-radius:36% 64% 52% 48%/64% 40% 60% 36%}}
+@keyframes drift3{0%,100%{transform:translate(0,0) scale(.95) rotate(0deg);border-radius:64% 36% 44% 56%/50% 54% 46% 50%}
+  50%{transform:translate(5vw,8vh) scale(1.18) rotate(60deg);border-radius:38% 62% 60% 40%/42% 50% 50% 58%}}
+.b1{width:46vw;height:46vw;left:-8vw;top:-6vh;background:radial-gradient(circle at 34% 34%, #c8e64b, rgba(200,230,75,0) 68%);animation:drift1 26s ease-in-out infinite}
+.b2{width:42vw;height:42vw;right:-6vw;top:2vh;background:radial-gradient(circle at 60% 40%, #8fb0e8, rgba(143,176,232,0) 68%);animation:drift2 31s ease-in-out infinite}
+.b3{width:52vw;height:52vw;left:14vw;bottom:-18vh;background:radial-gradient(circle at 45% 55%, #c4a6e8, rgba(196,166,232,0) 70%);animation:drift3 29s ease-in-out infinite}
+.b4{width:34vw;height:34vw;right:8vw;bottom:-8vh;background:radial-gradient(circle at 50% 50%, #ff7fa6, rgba(255,127,166,0) 68%);animation:drift1 34s ease-in-out infinite reverse}
+.b5{width:30vw;height:30vw;left:34vw;top:16vh;background:radial-gradient(circle at 50% 50%, #f6f1e8, rgba(246,241,232,0) 66%);animation:drift2 38s ease-in-out infinite}
+.b6{width:38vw;height:38vw;left:-4vw;top:38vh;background:radial-gradient(circle at 45% 45%, #ffb35c, rgba(255,179,92,0) 68%);animation:drift3 42s ease-in-out infinite reverse}
+
+.ribbon{position:fixed;left:-2%;right:-2%;bottom:0;width:104%;height:min(26vh,230px);z-index:0;pointer-events:none;opacity:.85}
+.ribbon path{transform-origin:center}
+.ribbon .w1{fill:#c4a6e8;opacity:.38;animation:wave 17s ease-in-out infinite}
+.ribbon .w2{fill:#8fb0e8;opacity:.34;animation:wave 23s ease-in-out infinite reverse}
+.ribbon .w3{fill:#c8e64b;opacity:.3;animation:wave 29s ease-in-out infinite}
+@keyframes wave{0%,100%{transform:translateX(-2%)}50%{transform:translateX(3%)}}
+
+/* ---- cold open ---- */
+.introseq{
+  position:fixed;inset:0;z-index:30;display:grid;place-items:center;
+  /* was far too light: the flying-in tiles were the same value as the ground
+     and the whole opening beat was invisible. Dropped ~2 stops. */
+  background:radial-gradient(130% 95% at 50% 45%, #5e2039 0%, #3d1021 38%, #230a14 78%, #140509 100%);
+  animation:introOut .5s 2.9s forwards;
+}
+.introseq[hidden]{display:none!important}
+.introgrid{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(86vw,900px);aspect-ratio:5/3;display:grid;
+  grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(3,1fr);gap:10px;
+  animation:gridOut .45s 1.05s forwards;
+}
+.introgrid i{
+  display:block;border-radius:3px;
+  background:linear-gradient(177deg,#8d3a57,#4d1a2d);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3), inset 0 -3px 8px rgba(0,0,0,.5);
+  animation:flyIn .42s cubic-bezier(.2,.9,.3,1.25) both;
+}
+@keyframes flyIn{from{opacity:0;transform:translateY(70px) scale(.5)}to{opacity:1;transform:none}}
+@keyframes gridOut{to{opacity:0;transform:translate(-50%,-50%) scale(1.5)}}
+.introword{
+  position:relative;margin:0;font-family:var(--font-bubble);font-weight:700;
+  font-size:clamp(40px,11vw,148px);line-height:.9;letter-spacing:-.01em;text-transform:uppercase;
+  color:var(--jgold);transform:rotate(-2deg);
+  text-shadow:0 2px 0 #a9c93c,0 4px 0 #8ba52c,0 6px 0 #6e8420,4px 10px 0 #1a0710,0 0 64px rgba(200,230,75,.4);
+  animation:slam .52s 1.02s cubic-bezier(.2,.9,.25,1.4) both;
+}
+@keyframes slam{
+  0%{opacity:0;transform:scale(2.6) rotate(-8deg);filter:blur(7px)}
+  70%{opacity:1;transform:scale(.94) rotate(1deg);filter:blur(0)}
+  100%{opacity:1;transform:scale(1) rotate(-2deg)}
+}
+.introtag{
+  position:absolute;left:0;right:0;bottom:19%;text-align:center;margin:0;
+  font-family:var(--font-clue);font-weight:800;letter-spacing:.34em;text-transform:uppercase;
+  font-size:clamp(11px,1.7vw,18px);color:var(--lime);animation:up .5s 1.5s ease both;
+}
+.skip{
+  position:absolute;right:calc(16px + env(safe-area-inset-right,0px));
+  bottom:calc(18px + env(safe-area-inset-bottom,0px));
+  background:transparent;border:1px solid rgba(255,255,255,.3);color:rgba(255,255,255,.7);
+  border-radius:999px;padding:8px 18px;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+}
+.skip:hover{border-color:var(--jgold);color:var(--jgold)}
+@keyframes introOut{to{opacity:0;visibility:hidden}}
+
+.markwrap{isolation:isolate;position:relative}
+.markwrap::before{
+  content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(130%,900px);height:min(260%,420px);pointer-events:none;z-index:-1;
+  background:radial-gradient(50% 50% at 50% 50%, rgba(200,230,75,.16), rgba(196,166,232,.12) 46%, transparent 72%);
+}
+.sub{
+  font-family:var(--font-clue);font-weight:800;letter-spacing:.3em;text-transform:uppercase;
+  font-size:clamp(11px,1.7vw,17px);color:var(--lime);margin:14px 0 0;animation:up .55s .5s ease both;
+}
+.subkiln{font-size:clamp(10px,1.3vw,12px);font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:rgba(255,255,255,.55);margin:7px 0 0;animation:up .55s .62s ease both}
+@keyframes up{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.playbtn{
+  margin-inline:auto;display:block;
+  background:var(--jgold);color:#191400;border:0;border-radius:4px;
+  font-family:var(--font-slab);font-size:clamp(22px,3.4vw,38px);letter-spacing:.08em;text-transform:uppercase;
+  padding:clamp(15px,2.1vh,21px) clamp(58px,9vw,100px);margin-top:clamp(22px,3.6vh,36px);
+  box-shadow:0 7px 0 var(--jgold-dim);animation:up .55s .78s ease both;
+}
+.playbtn:hover{filter:brightness(1.09)}
+.playbtn:active{transform:translateY(4px);box-shadow:0 3px 0 var(--jgold-dim)}
+.homemeta{margin:clamp(14px,2.2vh,20px) 0 0;font-size:clamp(11px,1.4vw,13px);letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.55);font-weight:700;animation:up .55s .88s ease both}
+.minilb{
+  box-sizing:border-box;width:min(100%,560px);margin:clamp(22px,3.4vh,32px) auto 0;
+  padding:20px 24px;background:rgba(0,0,0,.3);border:1px solid rgba(246,241,232,.18);
+  border-radius:14px;text-align:left;
+}
+.minihead{
+  font-family:var(--font-clue);font-size:11px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--lime);margin:0 0 12px;text-align:center;
+}
+.minilist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.minirow{
+  display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:11px;align-items:center;
+  padding:8px 0;border-bottom:1px solid rgba(246,241,232,.1);
+}
+.minirow:last-child{border-bottom:0}
+.minirow .r{font-family:var(--font-slab);font-size:14px;color:rgba(246,241,232,.5)}
+.minirow.lead .r{color:var(--lime)}
+.minirow .nm{min-width:0}
+.minirow .nm a,.minirow .nm span{display:block;font-weight:700;font-size:14px;color:var(--jwhite);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.minirow .nm a:hover{color:var(--lime);text-decoration:underline}
+.minirow .nm small{display:block;font-size:11px;color:rgba(246,241,232,.55);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.minirow .sc{font-family:var(--font-slab);font-size:16px;color:var(--lime);font-variant-numeric:tabular-nums}
+.miniempty{font-size:13.5px;color:rgba(246,241,232,.72);margin:6px auto 0;text-align:center;line-height:1.5;max-width:36ch}
+.minicta{font-size:12.5px;color:rgba(246,241,232,.74);margin:14px auto 0;line-height:1.5;text-align:center;max-width:40ch}
+.lockup{
+  display:flex;align-items:center;justify-content:center;gap:11px;
+  margin:clamp(22px,3.2vh,30px) auto 0;animation:up .55s 1.02s ease both;
+}
+.lock-kiln{font-family:var(--font-bubble);font-weight:600;font-size:clamp(15px,1.9vw,20px);color:var(--jwhite);letter-spacing:.01em}
+.lock-by{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:rgba(246,241,232,.5);font-weight:700}
+.lock-2x{
+  font-family:var(--font-slab);font-size:clamp(17px,2.2vw,24px);letter-spacing:.02em;
+  background:var(--jwhite);color:#2d0c19;border-radius:6px;padding:3px 9px 2px;line-height:1.05;
+}
+/* ---- real marks ---- */
+.brandbar{
+  display:flex;align-items:center;justify-content:center;gap:clamp(12px,2vw,20px);flex-wrap:wrap;
+  margin:clamp(14px,2.4vh,22px) auto 0;animation:up .55s .5s ease;
+}
+.lg-sculpt{display:block;height:clamp(26px,3.6vw,40px);width:auto;border-radius:8px}
+.bb-word{font-family:var(--font-bubble);font-weight:600;font-size:clamp(16px,2.3vw,26px);letter-spacing:.02em;color:var(--jwhite)}
+.lg-clay{display:block;height:clamp(20px,3vw,34px);width:auto;color:var(--jwhite)}
+.bb-by{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:rgba(246,241,232,.55);font-weight:700}
+.byline-logos{
+  display:flex;align-items:center;justify-content:center;gap:clamp(8px,1.3vw,12px);flex-wrap:wrap;
+  margin:clamp(22px,3.2vh,30px) auto 0;animation:up .55s 1.02s ease;
+}
+.bl-label{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:rgba(246,241,232,.5);font-weight:700}
+.bl-pg{
+  font-family:var(--font-bubble);font-weight:600;font-size:clamp(14px,1.8vw,17px);
+  color:var(--jwhite);text-decoration:none;border-bottom:2px solid rgba(200,230,75,.75);padding-bottom:1px;
+}
+.bl-pg:hover{color:var(--lime);border-color:var(--lime)}
+.lg-kiln{display:block;height:clamp(15px,2.1vw,22px);width:auto;color:var(--jwhite)}
+.lg-2x{display:block;height:clamp(22px,3.1vw,34px);width:auto;color:var(--jwhite)}
+/* ---- end marks ---- */
+.homelinks{display:flex;gap:10px;justify-content:center;margin-top:clamp(18px,2.6vh,26px);flex-wrap:wrap;animation:up .55s 1.08s ease both}
+.rule{
+  width:min(58%,360px);height:4px;margin:clamp(12px,2vh,18px) auto 0;border-radius:3px;
+  background:linear-gradient(90deg,transparent,var(--jgold),transparent);
+  animation:up .55s .42s ease both;
+}
+.cats{
+  list-style:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;
+  margin:clamp(18px,3vh,26px) auto 0;padding:0;width:min(100%,780px);animation:up .55s .98s ease both;
+}
+@media (max-width:760px){.cats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cats li:nth-child(5){grid-column:1 / -1}}
+.cats li{
+  display:flex;align-items:center;justify-content:center;text-align:center;
+  font-family:var(--font-bubble);font-weight:600;font-size:clamp(10px,1.15vw,13px);line-height:1.2;
+  letter-spacing:.02em;color:#2d0c19;border:0;border-radius:12px;padding:11px 10px;min-height:52px;
+  box-shadow:0 4px 0 rgba(0,0,0,.3);
+}
+.cats li:nth-child(5n+1){background:var(--lime)}
+.cats li:nth-child(5n+2){background:#8fb0e8}
+.cats li:nth-child(5n+3){background:#c4a6e8}
+.cats li:nth-child(5n+4){background:#ffb35c}
+.cats li:nth-child(5n+5){background:#ff9ab8}
+.floor{
+  position:fixed;left:50%;bottom:0;width:260vw;height:38vh;pointer-events:none;z-index:0;opacity:.28;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(196,166,232,.45) 0 1px, transparent 1px 7.5%),
+    repeating-linear-gradient(0deg, rgba(196,166,232,.4) 0 1px, transparent 1px 16%);
+  -webkit-mask-image:linear-gradient(180deg, transparent 0%, #000 72%);
+  mask-image:linear-gradient(180deg, transparent 0%, #000 72%);
+  transform:translateX(-50%) perspective(60vh) rotateX(72deg);
+  transform-origin:bottom center;
+}
+.horizon{
+  position:fixed;left:0;right:0;bottom:36vh;height:2px;pointer-events:none;z-index:0;
+  background:linear-gradient(90deg,transparent,rgba(196,166,232,.5),transparent);filter:blur(1px);
+}
+.stagelight{
+  position:absolute;left:50%;bottom:-18vh;width:150vw;height:46vh;transform:translateX(-50%);
+  pointer-events:none;z-index:0;
+  background:radial-gradient(50% 50% at 50% 50%, rgba(200,230,75,.16), transparent 68%);
+}
+
+/* ---- rules / leaderboard sheets ---- */
+.sheet{align-items:center;justify-content:center;text-align:left}
+.sheetinner{width:100%;max-width:620px}
+.sheettitle{font-family:var(--font-slab);font-size:clamp(26px,5vw,44px);letter-spacing:.03em;text-transform:uppercase;color:var(--jgold);text-shadow:3px 4px 0 var(--jshadow);margin:0 0 22px;text-align:center}
+.ruleslist{list-style:none;margin:0 0 28px;padding:0;display:flex;flex-direction:column;gap:14px}
+.ruleslist li{display:flex;gap:14px;align-items:flex-start;font-size:clamp(14px,1.8vw,17px);line-height:1.5;color:rgba(255,255,255,.9)}
+.ruleslist .n{flex:0 0 auto;width:28px;height:28px;border-radius:50%;background:var(--jgold);color:#191400;font-family:var(--font-slab);font-size:15px;display:grid;place-items:center}
+.ruleslist b{color:var(--jgold);font-weight:700}
+.backrow{display:flex;justify-content:center}
+
+/* ---- board ---- */
+#scBoard{justify-content:center}
+.boardscroll{overflow-x:auto;width:100%}
+.board{display:grid;grid-template-columns:repeat(5,minmax(116px,1fr));gap:clamp(5px,.7vw,9px);min-width:620px}
+.cathead{
+  background:linear-gradient(177deg,var(--lav) 0%,#a98bd0 100%);border-radius:3px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22), 0 3px 10px rgba(0,0,0,.35);
+  padding:clamp(12px,1.8vh,20px) 8px;text-align:center;
+  font-family:var(--font-clue);font-size:clamp(10px,1.15vw,14px);font-weight:800;line-height:1.22;
+  letter-spacing:.04em;text-transform:uppercase;color:#3a1020;text-shadow:none;
+  display:flex;align-items:center;justify-content:center;min-height:62px;
+  animation:tileIn .32s ease;
+}
+.tile{
+  position:relative;overflow:hidden;
+  background:linear-gradient(177deg,#8d3a57 0%,#6d2742 34%,#4d1a2d 100%);
+  border:0;border-radius:3px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3), inset 0 -3px 8px rgba(0,0,0,.55), 0 3px 10px rgba(0,0,0,.35);
+  font-family:var(--font-slab);font-size:clamp(26px,3.6vw,48px);letter-spacing:.02em;
+  color:var(--jgold);
+  text-shadow:0 1px 0 #7a5f00, 0 2px 0 #5c4700, 3px 5px 0 var(--jshadow);
+  padding:clamp(16px,3vh,32px) 6px;transition:transform .12s ease,filter .12s ease;
+  animation:tileIn .36s cubic-bezier(.2,.8,.3,1.1);
+}
+.tile::after{
+  content:"";position:absolute;left:0;right:0;top:0;height:42%;
+  background:linear-gradient(180deg,rgba(255,255,255,.14),transparent);pointer-events:none;
+}
+@keyframes tileIn{from{transform:translateY(12px) scale(.93)}to{transform:none}}
+.tile:hover:not(:disabled){transform:scale(1.035);filter:brightness(1.22)}
+.tile:active:not(:disabled){transform:scale(.99)}
+.tile:disabled{color:transparent;text-shadow:none;background:rgba(0,0,0,.5);box-shadow:inset 0 2px 10px rgba(0,0,0,.7);cursor:default}
+.tile:disabled::after{display:none}
+.tile.chosen{background:var(--jgold)!important;color:var(--jblue-deep)!important;text-shadow:none!important}
+.tile:focus-visible,.ans:focus-visible,.playbtn:focus-visible,.ghost:focus-visible,.iconbtn:focus-visible{
+  outline:3px solid var(--jwhite);outline-offset:2px
+}
+
+/* ---- phone ----
+   These rules were unreachable before: with no viewport meta the layout viewport
+   was 980px on a 375px phone, so no max-width query ever matched and the whole
+   game rendered at about a third scale. */
+@media (max-width:620px){
+  /* a 5x5 grid IS the game. Shrink it to fit rather than make people scroll sideways. */
+  .board{grid-template-columns:repeat(5,minmax(0,1fr));min-width:0;gap:4px}
+  .tile{font-size:clamp(15px,4.6vw,22px);padding:clamp(13px,2.4vh,20px) 2px;
+    text-shadow:0 1px 0 #7a5f00, 2px 3px 0 var(--jshadow)}
+  .cathead{font-size:9px;line-height:1.15;letter-spacing:.01em;padding:8px 3px;min-height:54px;hyphens:auto}
+  .boardscroll{overflow-x:visible}
+  .hud{padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top,0px))}
+  .hudscore .val{font-size:26px}
+  .iconbtn{width:34px;height:34px;font-size:14px}
+  .cluecard{padding:16px 14px 18px;border-radius:12px}
+  .clue{font-size:clamp(17px,4.6vw,22px);max-width:none}
+  .ans{padding:13px 13px;font-size:15px;gap:11px}
+  .answers{gap:8px}
+  .minilb{padding:14px 16px 12px}
+  .credit{font-size:10px}
+}
+
+/* ---- clue ---- */
+#scClue{justify-content:center;opacity:1}
+/* The clue lives in a real panel. It gives the screen a centre of gravity, keeps
+   the category, timer, clue and answers on ONE column width instead of three,
+   and gives the tile->clue expansion an actual target to land in. */
+.cluecard{
+  width:min(100%,780px);margin:0 auto;box-sizing:border-box;
+  background:linear-gradient(177deg, rgba(45,12,25,.82), rgba(26,7,16,.88));
+  border:1px solid rgba(246,241,232,.16);
+  border-top:4px solid var(--catc,var(--jgold));
+  border-radius:14px;padding:clamp(18px,2.8vh,26px) clamp(16px,3vw,34px) clamp(20px,3vh,28px);
+  box-shadow:0 22px 60px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.07);
+  backdrop-filter:blur(3px);
+}
+#scClue.enter .cluecard{animation:cardIn .3s cubic-bezier(.2,.8,.3,1) both}
+/* opacity only: the expander measures this card, so it must not be mid-transform */
+@keyframes cardIn{from{opacity:0}to{opacity:1}}
+.cluetop{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.cluecat{font-family:var(--font-clue);font-size:clamp(11px,1.5vw,15px);font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--catc,var(--lime))}
+.clueprog{font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:rgba(246,241,232,.62);font-variant-numeric:tabular-nums}
+.clueworth{font-family:var(--font-slab);font-size:clamp(22px,3vw,34px);color:var(--jgold);text-shadow:2px 3px 0 var(--jshadow)}
+.timerail{position:relative;height:10px;background:rgba(0,0,0,.42);border-radius:999px;margin-bottom:clamp(18px,3vh,30px)}
+.timefill{height:100%;width:100%;background:var(--jgold);transform-origin:left center;border-radius:999px}
+.timefill.hurry{background:#ff8a5c;animation:pulseRed .7s ease-in-out infinite}
+.timenum{
+  position:absolute;right:0;top:14px;font-family:var(--font-slab);font-size:13px;
+  color:rgba(246,241,232,.6);font-variant-numeric:tabular-nums;line-height:1;
+}
+.timenum.hurry{color:#ff8a5c}
+@keyframes pulseRed{0%,100%{opacity:1}50%{opacity:.4}}
+.clue{
+  font-family:var(--font-clue);font-weight:700;color:var(--jwhite);
+  font-size:clamp(19px,2.5vw,31px);line-height:1.32;letter-spacing:.004em;text-align:center;
+  text-shadow:0 2px 8px rgba(0,0,0,.55);margin:0 auto clamp(18px,3vh,30px);max-width:34ch;
+  opacity:1;text-wrap:balance;
+}
+.cluehint{
+  text-align:center;margin:14px 0 0;font-size:11px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:rgba(246,241,232,.42);
+}
+.cluehint b{display:inline-block;min-width:17px;padding:1px 4px;margin:0 1px;border-radius:3px;
+  background:rgba(255,255,255,.1);color:rgba(246,241,232,.72);font-family:var(--font-slab);font-weight:400}
+.cluehint[hidden]{display:none!important}
+.cluehint.verdict{font-size:13px;font-weight:800;letter-spacing:.1em;animation:up .28s ease both;
+  text-shadow:0 1px 4px rgba(0,0,0,.7)}
+.cluehint.verdict.ok{color:var(--lime)}
+.cluehint.verdict.no{color:#ffa8bd}
+.cluehint.verdict.out{color:#ffb35c}
+.clue.enter{animation:clueUp .34s ease}
+@keyframes clueUp{from{transform:translateY(18px) scale(.97)}to{transform:none}}
+.answers{display:grid;gap:10px;max-width:760px;width:100%;margin:0 auto}
+.ans{
+  display:flex;gap:14px;align-items:center;text-align:left;width:100%;
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.32);border-radius:4px;
+  color:var(--jwhite);padding:clamp(13px,1.9vh,18px) 17px;
+  font-size:clamp(14px,1.8vw,18px);font-weight:600;line-height:1.3;
+  transition:background .1s ease,border-color .1s ease;animation:ansUp .3s ease both;
+}
+@keyframes ansUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.ans:nth-child(1){animation-delay:.14s}
+.ans:nth-child(2){animation-delay:.2s}
+.ans:nth-child(3){animation-delay:.26s}
+.ans:hover:not(:disabled){background:rgba(255,255,255,.2);border-color:var(--jgold)}
+.ans:disabled{cursor:default}
+.ans .key{flex:0 0 auto;width:27px;height:27px;border-radius:3px;background:rgba(0,0,0,.35);display:grid;place-items:center;font-family:var(--font-slab);font-size:15px;color:var(--jgold)}
+.ans.right{background:var(--lime);border-color:var(--lime);color:#14200a;animation:flashGood .55s ease-out forwards}
+.ans.right .key{background:#14200a;color:var(--lime)}
+.ans.wrong{background:var(--plum);border-color:var(--plum);color:#15223a;animation:flashBad .55s ease-out forwards}
+.ans.wrong .key{background:rgba(0,0,0,.4);color:#fff}
+@keyframes flashGood{0%{box-shadow:0 0 0 0 rgba(200,230,75,.9)}100%{box-shadow:0 0 0 28px rgba(200,230,75,0)}}
+@keyframes flashBad{0%{box-shadow:0 0 0 0 rgba(123,45,69,.9)}100%{box-shadow:0 0 0 28px rgba(123,45,69,0)}}
+
+/* ---- result ---- */
+#scDone{align-items:center;justify-content:center;text-align:center}
+.doneinner{width:100%;max-width:540px}
+.donelab{font-family:var(--font-clue);font-size:12px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--lime);margin:0 0 8px}
+.donescore{font-family:var(--font-slab);font-size:clamp(64px,15vw,150px);line-height:.84;color:var(--jgold);text-shadow:4px 7px 0 var(--jshadow);margin:0 0 10px;animation:pop .45s cubic-bezier(.2,.9,.3,1.25) both}
+@keyframes pop{0%{transform:scale(.55);opacity:0}62%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+.donemath{font-size:14px;font-weight:700;color:var(--jgold);letter-spacing:.04em;margin:0 0 12px;min-height:1.1em}
+.donenote{font-size:clamp(14px,1.8vw,17px);color:rgba(255,255,255,.88);margin:0 0 26px;line-height:1.5}
+.form{display:grid;gap:10px;text-align:left}
+.form input{
+  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.38);border-radius:4px;color:#fff;
+  font-family:inherit;font-size:16px;font-weight:500;padding:14px 16px;width:100%;box-sizing:border-box;
+}
+.form input::placeholder{color:rgba(255,255,255,.5)}
+.form input:focus{outline:2px solid var(--jgold);outline-offset:1px}
+.form button{
+  background:var(--jgold);color:#191400;border:0;border-radius:4px;font-family:var(--font-slab);
+  font-size:19px;letter-spacing:.07em;text-transform:uppercase;padding:15px 24px;box-shadow:0 5px 0 var(--jgold-dim);
+}
+.form button:active{transform:translateY(3px);box-shadow:0 2px 0 var(--jgold-dim)}
+.privacy{font-size:11px;color:rgba(255,255,255,.55);margin:0;line-height:1.45}
+.saved{margin:14px 0 0;font-size:14px;color:var(--lime);min-height:1.2em;text-align:center}
+.againrow{display:flex;gap:10px;justify-content:center;margin-top:22px;flex-wrap:wrap}
+
+/* ---- leaderboard ---- */
+.lbsubtitle{text-align:center;font-size:13px;color:rgba(255,255,255,.7);margin:-14px 0 4px;line-height:1.4}
+.lblive{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.55);text-align:center;display:block;margin:-14px 0 20px}
+.lblist{list-style:none;margin:0 0 26px;padding:0;display:flex;flex-direction:column}
+.lbrow{
+  display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:13px;align-items:center;
+  padding:13px 4px;border-bottom:1px solid rgba(255,255,255,.14);
+}
+.lbrow:last-child{border-bottom:0}
+.lbrow .rank{font-family:var(--font-slab);font-size:20px;color:rgba(255,255,255,.5)}
+.lbrow.lead .rank{color:var(--jgold)}
+.lbwho{min-width:0}
+.lbwho a,.lbwho span.nm{font-weight:700;font-size:16px;color:#fff;text-decoration:none;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbwho a:hover{color:var(--jgold);text-decoration:underline}
+.lb-cta{
+  display:inline-flex;align-items:center;gap:6px;margin-top:8px;
+  background:rgba(200,230,75,.14);border:1px solid rgba(200,230,75,.5);border-radius:999px;
+  padding:5px 12px;font-size:11.5px;font-weight:700;letter-spacing:.02em;
+  color:var(--lime);text-decoration:none;white-space:nowrap;
+}
+.lb-cta::after{content:"\2197";font-size:11px;opacity:.9}
+.lb-cta:hover{background:var(--lime);color:#1d2a08;border-color:var(--lime)}
+.lbrow{align-items:start}
+.lbrow .rank,.lbrow .pts{padding-top:3px}
+.lbwho .role{display:block;font-size:12px;color:rgba(255,255,255,.6);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+.lbrow .pts{font-family:var(--font-slab);font-size:23px;color:var(--jgold);font-variant-numeric:tabular-nums}
+.lbempty{font-size:15px;color:rgba(255,255,255,.65);line-height:1.5;margin:0 0 26px;text-align:center}
+
+.credit{
+  position:relative;z-index:2;text-align:center;font-size:11px;color:rgba(246,241,232,.66);
+  padding:14px 16px calc(16px + env(safe-area-inset-bottom,0px));line-height:1.6;
+  text-shadow:0 1px 3px rgba(0,0,0,.6);
+}
+.credit b{color:rgba(246,241,232,.92);font-weight:700}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+
+<div class="introseq" id="introSeq">
+  <div class="introgrid" id="introGrid" aria-hidden="true"></div>
+  <h1 class="introword">GTM Jeopardy!</h1>
+  <p class="introtag">Sculpt 2026</p>
+  <button class="skip" id="skipBtn" type="button">Skip</button>
+</div>
+
+<canvas id="stars"></canvas>
+<canvas id="burstfx"></canvas>
+<div class="blobs" aria-hidden="true">
+  <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+  <span class="blob b4"></span><span class="blob b5"></span><span class="blob b6"></span>
+</div>
+<svg class="ribbon" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
+  <path class="w1" d="M0,120 C240,40 420,190 720,120 C1020,50 1200,170 1440,100 L1440,220 L0,220 Z"/>
+  <path class="w2" d="M0,150 C260,80 440,210 720,150 C1000,90 1190,200 1440,140 L1440,220 L0,220 Z"/>
+  <path class="w3" d="M0,180 C280,120 460,230 720,180 C980,130 1210,225 1440,175 L1440,220 L0,220 Z"/>
+</svg>
+<div class="spot"></div>
+<div class="horizon"></div>
+<div class="floor"></div>
+<div class="stagelight"></div>
+<div class="vignette"></div>
+<div class="scan"></div>
+<div class="flash" id="flash"></div>
+<div class="dd" id="ddCard" hidden>
+  <div class="ddinner">
+    <p class="ddmark">Daily Double!</p>
+    <p class="ddsub">This one is worth</p>
+    <p class="ddval" id="ddVal">$2000</p>
+    <p class="ddhint">Click anywhere to play it</p>
+  </div>
+</div>
+
+<div class="world">
+  <div class="hud" id="hud" hidden>
+    <div class="hudscore"><span class="lab">Score</span><span class="val" id="scoreVal">0</span></div>
+    <div class="hudright">
+      <div class="opbar" id="opbar" hidden>
+        <div class="modeswitch">
+          <button id="modeBooth" type="button" aria-pressed="false">Booth</button>
+          <button id="modeSolo" type="button" aria-pressed="true">Solo</button>
+        </div>
+        <button class="ghost" id="doneBtn" type="button">Cash out</button>
+        <button class="ghost" id="resetBtn" type="button">Reset</button>
+      </div>
+      <button class="iconbtn" id="soundBtn" type="button" aria-pressed="true" aria-label="Toggle sound" title="Sound">&#9834;</button>
+      <button class="iconbtn" id="quitBtn" type="button" aria-label="Back to menu" title="Menu">&#10005;</button>
+    </div>
+  </div>
+
+  <!-- home -->
+  <section class="screen pad" id="scHome">
+    <div class="markwrap">
+      <h1 class="mark">GTM Jeopardy!</h1>
+    </div>
+    <div class="rule" aria-hidden="true"></div>
+    <div class="brandbar">
+      <span class="bb-word">Sculpt 2026</span>
+      <span class="bb-by">by</span>
+      <svg class="lg-clay" aria-hidden="true" focusable="false" viewBox="0 0 172 55" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M86.7115 11.4726C93.7813 11.4426 98.1374 16.0572 99.4312 18.2791L93.0042 22.1814C92.2811 21.074 90.529 18.5353 85.8061 18.5553C79.6898 18.5813 77.4669 23.3823 77.4834 27.3003C77.5 31.2183 79.5464 36.0612 86.0111 36.0337C90.2946 36.0154 92.906 33.0295 93.676 31.5388L100.578 34.2534C100.561 34.2993 97.284 43.0816 85.3224 43.1325C76.801 43.1685 69.8205 37.0093 69.7775 26.9387C69.741 18.3527 76.5164 11.5161 86.7115 11.4726Z" fill="currentColor"/> <path fill-rule="evenodd" clip-rule="evenodd" d="M125.869 11.5879C130.141 11.7235 134.777 13.5053 137.117 18.1055C138.596 21.0143 138.543 25.3826 138.596 29.9656C138.633 33.1453 138.894 36.8963 143.044 35.0983L144.898 41.1246C144.159 41.9031 141.82 43.445 138.443 43.1285C135.067 42.812 133.258 40.1168 132.697 38.427C130.003 41.3741 126.755 43.3117 121.89 43.1574C119.904 43.0944 112.644 42.1211 112.902 33.9039C113.16 25.6868 125.333 24.3595 131.165 24.5446C131.165 22.4349 130.659 18.9296 125.644 18.7703C122.05 18.6564 120.394 21.2255 119.667 22.7917L113.171 20.1868C113.773 17.2001 117.707 11.329 125.869 11.5879ZM131.501 29.8427C128.197 29.8427 120.541 29.8949 120.421 33.6988C120.382 34.9356 120.864 36.6641 123.544 36.7493C127.688 36.8812 131.398 33.1082 131.501 29.8427Z" fill="currentColor"/> <path d="M102.554 42.6495V0H109.965V42.6495H102.554Z" fill="currentColor"/> <path d="M151.014 53.4357L143.372 52.8642L148.968 41.7386L139.31 10.6837L147.365 11.286L153.326 33.0695L163.514 12.4929L171.568 13.0953L151.014 53.4357Z" fill="currentColor"/> <path d="M40.8046 16.0758C47.9913 15.7636 52.8747 21.6138 54.0774 28.7857C54.6851 32.4097 54.7959 37.7943 54.817 42.5277C54.82 43.218 54.3357 43.808 53.673 43.9249L51.3671 44.3315C50.5261 44.4798 49.7575 43.8161 49.7474 42.9401C49.6949 38.3942 49.4648 33.8372 48.9141 30.5241C48.512 28.1046 47.822 25.9612 46.5618 24.4368C45.2499 22.8498 43.415 22.0462 41.0194 22.146C38.3647 22.2567 36.3621 23.3963 34.9112 25.2206C33.4933 27.0033 32.6392 29.3897 32.1127 31.9753C31.2297 36.3122 31.212 41.9806 31.2606 46.6593C31.2678 47.3555 30.7821 47.9538 30.1134 48.0711L27.5832 48.5151C26.741 48.6629 25.9715 47.9971 25.966 47.1201C25.9335 41.9562 25.8151 36.4096 26.76 31.4031C27.3286 28.3904 28.4666 24.6097 30.5997 21.7842C32.9765 18.6362 36.4707 16.2574 40.8046 16.0758Z" fill="currentColor"/> <path d="M22.1859 4.29181C26.9057 4.09873 33.4393 5.60696 46.8428 9.49269C55.0279 11.8656 59.7119 19.4679 61.0896 27.5207C61.7194 31.2018 61.8658 36.4894 61.9015 40.962C61.9083 41.8231 61.3064 42.5608 60.4804 42.7104L58.5636 43.0574C57.7205 43.2101 56.9475 42.5459 56.9399 41.6671C56.9006 37.1223 56.7222 31.9606 56.1161 28.4181C54.7728 20.5668 49.422 13.6717 40.7345 13.9317L40.7285 13.9319L40.7226 13.9322C35.6306 14.1445 31.6269 16.9477 28.9679 20.4695C23.5621 27.6297 23.8495 39.1075 23.8563 47.9843C23.8569 48.6718 23.3735 49.2561 22.7134 49.3723L20.1279 49.8273C19.2165 49.9877 18.2799 49.8942 17.4156 49.5567L1.83474 43.4715C1.04021 43.1612 0.510508 42.3855 0.501432 41.5129C0.459281 37.46 0.457512 30.8046 1.48229 25.3748C2.1256 21.9664 3.43514 17.0173 6.59115 12.837C9.93203 8.41196 15.2667 4.58027 22.1859 4.29181Z" fill="currentColor"/> <path d="M41.1035 24.2891C42.9882 24.2105 44.1307 24.7877 44.9775 25.8121C45.876 26.899 46.5002 28.7743 46.8799 31.0591C47.4399 34.4282 47.5857 38.9829 47.6169 43.7925C47.6214 44.4836 47.1365 45.0754 46.473 45.1921L34.9853 47.2124C34.1496 47.3594 33.3832 46.705 33.3745 45.8346C33.3304 41.3917 33.353 36.4565 34.1411 32.5861C34.6357 30.1567 35.3971 27.9784 36.5129 26.5753C37.5958 25.2138 39.015 24.3762 41.1035 24.2891Z" fill="currentColor"/> </svg>
+    </div>
+    <button class="playbtn" id="playBtn" type="button">Play</button>
+    <p class="homemeta" id="homeMeta">10 categories &middot; 5 per game &middot; 20 seconds each</p>
+    <ul class="cats" id="catPills" aria-label="Categories"></ul>
+
+    <section class="minilb" id="miniLb">
+      <h2 class="minihead">On the board right now</h2>
+      <ol class="minilist" id="miniList"></ol>
+      <p class="miniempty" id="miniEmpty">No scores yet. The first name on this board stays at the top until somebody beats it.</p>
+      <p class="minicta">Score well and your name and LinkedIn go here, in front of everyone who plays.</p>
+    </section>
+    <div class="byline-logos" aria-label="Built by PG Smith of The Kiln by 2X">
+      <span class="bl-label">Built by</span>
+      <a class="bl-pg" href="https://www.linkedin.com/in/pg-smith" target="_blank" rel="noopener noreferrer">PG Smith</a>
+      <span class="bb-by">of</span>
+      <svg class="lg-kiln" aria-hidden="true" focusable="false" viewBox="0 0 246 32" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M85.982 23V10.68H81.602V9H92.262V10.68H87.882V23H85.982ZM94.1766 23V8.74H95.9566V14.78C96.2232 14.1133 96.6432 13.6133 97.2166 13.28C97.8032 12.9333 98.4766 12.76 99.2366 12.76C99.9966 12.76 100.657 12.9333 101.217 13.28C101.79 13.6133 102.23 14.0867 102.537 14.7C102.843 15.3 102.997 16.0067 102.997 16.82V23H101.217V17.14C101.217 16.3 100.997 15.6267 100.557 15.12C100.117 14.6133 99.5299 14.36 98.7966 14.36C98.2366 14.36 97.7432 14.5 97.3166 14.78C96.8899 15.0467 96.5566 15.42 96.3166 15.9C96.0766 16.3667 95.9566 16.9133 95.9566 17.54V23H94.1766ZM110.345 23.16C109.585 23.16 108.892 23.02 108.265 22.74C107.652 22.46 107.125 22.08 106.685 21.6C106.245 21.1067 105.905 20.5467 105.665 19.92C105.439 19.28 105.325 18.6067 105.325 17.9C105.325 17.18 105.432 16.5133 105.645 15.9C105.859 15.2733 106.172 14.7267 106.585 14.26C107.012 13.78 107.525 13.4133 108.125 13.16C108.725 12.8933 109.405 12.76 110.165 12.76C110.912 12.76 111.579 12.8867 112.165 13.14C112.752 13.38 113.245 13.72 113.645 14.16C114.059 14.6 114.365 15.1067 114.565 15.68C114.779 16.2533 114.885 16.8667 114.885 17.52C114.885 17.64 114.879 17.7667 114.865 17.9C114.865 18.0333 114.859 18.1533 114.845 18.26H106.345V16.84H113.085C113.032 16.04 112.745 15.4067 112.225 14.94C111.705 14.46 111.019 14.22 110.165 14.22C109.685 14.22 109.252 14.3 108.865 14.46C108.479 14.62 108.152 14.86 107.885 15.18C107.619 15.4867 107.412 15.8667 107.265 16.32C107.132 16.7733 107.065 17.2933 107.065 17.88C107.065 18.6 107.199 19.2467 107.465 19.82C107.745 20.38 108.132 20.82 108.625 21.14C109.119 21.46 109.692 21.62 110.345 21.62C111.119 21.62 111.745 21.46 112.225 21.14C112.719 20.8067 113.039 20.34 113.185 19.74H114.985C114.879 20.4333 114.612 21.0333 114.185 21.54C113.759 22.0467 113.219 22.4467 112.565 22.74C111.925 23.02 111.185 23.16 110.345 23.16ZM127.512 23H125.612V9H127.512V23ZM126.832 16.32L133.452 9H135.852L127.012 18.7L126.832 16.32ZM130.452 14.08L136.252 23H134.012L129.112 15.44L130.452 14.08ZM140.27 23V15.16C140.27 14.6933 140.036 14.46 139.57 14.46H137.33V12.92H139.87C140.536 12.92 141.063 13.1133 141.45 13.5C141.85 13.8867 142.05 14.42 142.05 15.1V23H140.27ZM140.15 8.74H142.15V11.08H140.15V8.74ZM148.457 23V10.98C148.457 10.7533 148.397 10.58 148.277 10.46C148.157 10.34 147.983 10.28 147.757 10.28H145.557V8.74H148.057C148.737 8.74 149.27 8.93333 149.657 9.32C150.043 9.70667 150.237 10.24 150.237 10.92V23H148.457ZM154.569 23V12.92H156.329V14.78C156.609 14.1133 157.036 13.6133 157.609 13.28C158.196 12.9333 158.869 12.76 159.629 12.76C160.389 12.76 161.049 12.9333 161.609 13.28C162.182 13.6133 162.622 14.0867 162.929 14.7C163.236 15.3 163.389 16.0067 163.389 16.82V23H161.609V17.14C161.609 16.3 161.389 15.6267 160.949 15.12C160.509 14.6133 159.916 14.36 159.169 14.36C158.622 14.36 158.136 14.5 157.709 14.78C157.282 15.0467 156.942 15.42 156.689 15.9C156.449 16.3667 156.329 16.9133 156.329 17.54V23H154.569Z" fill="currentColor"/> </svg>
+      <span class="bb-by">by</span>
+      <svg class="lg-2x" aria-hidden="true" focusable="false" viewBox="0 0 260 200" fill="none" xmlns="http://www.w3.org/2000/svg"> <g clip-path="url(#clip0_95_8144)"> <path d="M41.1936 35H98.7509C102.285 35.5794 104.616 36.2248 107.634 38.2914C110.852 40.4954 112.168 43.2243 114.199 46.4214L119.669 54.9968L126.301 65.388C127.474 67.2241 128.898 69.3409 129.976 71.2096L129.971 109.487C129.972 115.926 129.871 122.652 129.976 129.07C126.445 134.867 122.48 140.832 118.794 146.585L114.359 153.506C110.814 159.039 108.595 162.785 101.652 164.478C100.803 164.683 99.946 164.857 99.0841 165H3.59629C1.41275 164.255 0.570042 163.543 0 161.246V145.515C0.111513 145.017 0.221812 143.865 0.336518 143.239C0.767909 140.82 1.66962 138.509 2.99058 136.437C4.3019 134.413 6.81759 132.05 8.57349 130.292L15.5532 123.307L44.0388 94.9318C46.1052 92.8645 48.2056 90.6816 50.3118 88.6424C55.3551 83.7593 58.0041 78.5798 55.9263 71.4518C53.0337 61.311 34.2145 61.9921 32.1707 72.3081C31.0616 77.9067 30.8249 78.5227 24.7983 78.4582C18.0111 78.3856 11.0892 78.6324 4.2906 78.4787C1.93672 78.4255 0.686255 77.113 0 74.9739V70.9539C0.170626 70.2343 0.40671 67.401 0.586879 66.3186C1.39037 61.3909 3.25715 56.6973 6.05752 52.5638C12.1358 43.6104 22.1296 38.2019 32.5764 36.136C34.4114 35.7747 36.2625 35.5007 38.1235 35.315C38.9751 35.2245 40.34 35.1713 41.0905 35.0213L41.1936 35ZM43.3879 138.711C45.7736 138.827 48.6228 138.761 51.0471 138.761L64.3018 138.757L72.7709 138.765C74.5841 138.766 76.7298 138.823 78.4662 138.687C82.0433 138.405 86.7334 136.366 89.2025 133.687C91.8225 130.844 94.2796 126.569 96.4445 123.26L106.441 107.979C108.133 105.394 109.928 102.527 111.68 100.005L96.3515 76.8338L91.9728 70.1943C91.1941 69.0062 90.3938 67.7378 89.5488 66.5948C89.2986 66.2564 88.9237 66.1631 88.5261 66.0601C88.2103 66.2414 87.553 66.595 87.5184 66.9943C87.402 68.4114 87.9182 69.8669 88.05 71.2718C88.3742 74.7319 88.3807 78.2495 87.9008 81.6959C86.3623 92.7464 77.9042 100.714 70.2725 108.069L60.9115 117.17L48.0455 129.685C46.7784 130.911 45.4897 132.169 44.2131 133.384C42.407 135.102 40.4318 136.751 43.3879 138.711Z" fill="currentColor"/> <path d="M214.483 121.628C215.677 121.542 217.962 121.612 219.221 121.611L228.649 121.608L236.488 121.608C238.556 121.608 242.003 121.287 243.636 122.562C244.542 123.279 245.125 124.327 245.257 125.476C245.555 128.032 243.77 130.097 241.243 130.343L222.748 130.349C219.843 130.35 216.722 130.411 213.818 130.273C213.117 130.24 212.405 129.968 211.838 129.54C210.844 128.788 210.192 127.669 210.029 126.433C209.838 124.901 210.774 123.11 212.067 122.3C212.853 121.808 213.592 121.706 214.483 121.628Z" fill="currentColor"/> <path d="M196.118 104.344C200.331 104.137 206.292 104.322 210.618 104.321L218.823 104.319C220.42 104.319 223.993 104.13 225.277 104.777C226.322 105.302 227.108 106.228 227.455 107.343C228.281 109.966 226.739 112.209 224.203 112.951C223.119 113.11 221.077 113.056 219.902 113.057L212.734 113.062L202.522 113.063C200.672 113.062 196.093 113.309 194.646 112.485C193.584 111.877 192.815 110.865 192.512 109.68C191.848 107.074 193.619 104.924 196.118 104.344Z" fill="currentColor"/> <path d="M179.424 87.0776C180.571 86.956 182.315 87.0042 183.515 87.0028L190.476 86.9976L200.579 86.9974C202.028 86.998 206.985 86.8148 207.983 87.3791C211.787 89.5323 211.191 94.0859 207.179 95.6099C206.298 95.7445 204.519 95.7022 203.586 95.7029L197.511 95.7048C191.972 95.7046 186.434 95.7139 180.896 95.69C178.824 95.6811 177.135 94.8973 176.376 92.8408C175.974 91.7382 176.032 90.5207 176.535 89.4608C177.151 88.1327 178.13 87.5534 179.424 87.0776Z" fill="currentColor"/> <path d="M161.167 35H218.835C220.166 35.3955 221.288 35.9372 221.984 37.2361C222.549 38.3063 222.659 39.559 222.288 40.711C221.947 41.7857 221.194 42.6817 220.194 43.2031C218.55 44.0435 212.707 43.7093 210.475 43.7144L192.835 43.7122C191.359 43.7123 189.826 43.7449 188.355 43.715C186.015 43.6674 183.975 44.1542 183.139 46.6721C182.773 47.7418 182.857 48.9139 183.37 49.9213C183.792 50.7606 184.986 51.9716 185.803 52.0837C189.053 52.5297 193.996 52.3427 197.256 52.3415L236.934 52.3384L246.755 52.3233C249.639 52.3192 253.628 51.6556 255.193 54.5999C255.746 55.6498 255.856 56.8763 255.502 58.0081C255.16 59.1192 254.38 60.0418 253.339 60.5599C251.747 61.3452 246.534 61.0295 244.567 61.0269L231.345 61.0376L189.958 61.0366L180.669 61.0325C179.288 61.0328 176.642 60.8866 175.396 61.1939C171.339 62.1932 171.094 68.0549 175.101 69.404C176.495 69.8455 178.929 69.6814 180.467 69.6793L192.165 69.6535C193.904 69.6488 199.114 69.5066 200.41 69.8913C201.493 70.2225 202.395 70.979 202.909 71.9875C203.456 73.034 203.559 74.2572 203.192 75.3801C201.884 79.3636 196.291 78.4088 192.88 78.3996L174.32 78.3822C172.281 78.3804 165.137 78.1501 163.481 78.8257C160.913 79.875 157.103 86.6901 155.407 89.1898C153.046 92.6674 150.55 96.4584 148.28 100.002L162.457 121.7L166.449 127.817C167.847 129.962 169.142 132.157 170.98 133.953C173.385 136.282 176.395 137.889 179.668 138.589C182.494 139.176 187.965 138.97 191.068 138.965L208.096 138.959C210.337 138.959 213.171 138.819 215.336 139.085C218.812 139.512 220.05 144.583 217.224 146.682C216.507 147.265 215.8 147.568 214.86 147.629C212.306 147.744 209.725 147.695 207.166 147.694L191.883 147.684C190.353 147.687 186.786 147.52 185.544 147.956C184.169 148.437 183.137 149.59 182.811 151.011C182.279 153.257 183.712 155.763 186.011 156.148C187.6 156.414 189.583 156.291 191.213 156.284L199.097 156.28L240.231 156.28L250.543 156.279C254.531 156.275 258.833 155.303 260 160.197V161.152C259.394 163.394 258.601 164.281 256.374 165H161.129C160.686 164.874 159.661 164.716 159.182 164.641C150.197 163.247 146.535 154.904 142.135 148.033L129.976 129.07C129.87 122.652 129.972 115.926 129.971 109.487L129.976 71.2096C134.48 64.3665 138.86 57.2003 143.32 50.3258C148.874 41.7629 150.161 36.919 161.167 35Z" fill="currentColor"/> <path d="M260 143.853C259.353 146.424 257.9 147.66 255.243 147.672C247.592 147.709 239.939 147.718 232.29 147.661C225.995 147.615 226.226 139.019 232.271 138.947C240.038 139.027 247.811 138.887 255.577 138.991C258.148 139.026 259.369 140.535 260 142.835V143.853Z" fill="currentColor"/> <path d="M260 74.7191C259.915 75.0572 259.757 75.5032 259.616 75.8189C259.135 76.8801 258.246 77.7021 257.151 78.0983C256.672 78.2677 255.876 78.3785 255.349 78.3808C247.787 78.4141 240.219 78.3686 232.656 78.3877C230.714 78.3926 228.988 77.2273 228.376 75.3693C228.018 74.264 228.11 73.0617 228.635 72.0245C229.028 71.2472 230.233 69.9864 231.009 69.8998C235.395 69.4104 240.628 69.7373 245.065 69.6545C248.614 69.6806 252.169 69.6091 255.716 69.6982C258.156 69.7595 259.315 71.0969 260 73.2699V74.7191Z" fill="currentColor"/> </g> <defs> <clipPath id="clip0_95_8144"> <rect width="260" height="130" fill="currentColor" transform="translate(0 35)"/> </clipPath> </defs> </svg>
+    </div>
+    <div class="homelinks">
+      <button class="ghost" id="rulesBtn" type="button">How to play</button>
+      <button class="ghost" id="lbBtn" type="button">Leaderboard</button>
+    </div>
+  </section>
+
+  <!-- rules -->
+  <section class="screen pad sheet" id="scRules" hidden>
+    <div class="sheetinner">
+      <h2 class="sheettitle">How to play</h2>
+      <ol class="ruleslist" id="rulesList"></ol>
+      <div class="backrow"><button class="ghost" data-back type="button">Back</button></div>
+    </div>
+  </section>
+
+  <!-- leaderboard -->
+  <section class="screen pad sheet" id="scLb" hidden>
+    <div class="sheetinner">
+      <h2 class="sheettitle" id="lbTitle">Leaderboard</h2>
+      <p class="lbsubtitle" id="lbSubtitle">A full board of 25 clues, highest total wins</p>
+      <span class="lblive" id="lbLive">Loading</span>
+      <ol class="lblist" id="lbList"></ol>
+      <p class="lbempty" id="lbEmpty">Nobody yet. First one up owns it.</p>
+      <div class="backrow"><button class="ghost" data-back type="button">Back</button></div>
+    </div>
+  </section>
+
+  <!-- board -->
+  <section class="screen pad" id="scBoard" hidden>
+    <div class="boardscroll"><div class="board" id="board"></div></div>
+  </section>
+
+  <!-- clue -->
+  <section class="screen pad" id="scClue" hidden>
+    <div class="cluecard" id="clueCard">
+      <div class="cluetop">
+        <span class="cluecat" id="catLabel">Category</span>
+        <span class="clueprog" id="clueProg"></span>
+        <span class="clueworth" id="worthLabel">$200</span>
+      </div>
+      <div class="timerail"><div class="timefill" id="timeFill"></div><span class="timenum" id="timeNum">20</span></div>
+      <p class="clue" id="clueText">&nbsp;</p>
+      <div class="answers" id="answers"></div>
+      <p class="cluehint" id="clueHint">Pick one, or press <b>1</b> <b>2</b> <b>3</b></p>
+    </div>
+  </section>
+
+  <!-- result -->
+  <section class="screen pad" id="scDone" hidden>
+    <div class="doneinner">
+      <p class="donelab" id="doneLab">Final score</p>
+      <p class="donescore" id="finalScore">0</p>
+      <p class="donemath" id="scoreMath"></p>
+      <p class="donenote" id="finalNote">&nbsp;</p>
+      <div class="form">
+        <input id="nameInput" type="text" maxlength="40" placeholder="Your name" autocomplete="name">
+        <input id="liInput" type="url" maxlength="120" placeholder="linkedin.com/in/you" autocomplete="url">
+        <input id="titleInput" type="text" maxlength="60" placeholder="Title and company (optional)" autocomplete="organization-title">
+        <button id="saveBtn" type="button">Put me on the board</button>
+        <p class="privacy">Your name links to your profile for everyone who plays this, and the board is up on the screen at The Kiln's booth at Sculpt. Leave the link out if you would rather not.</p>
+      </div>
+      <p class="saved" id="savedMsg"></p>
+      <div class="againrow">
+        <button class="ghost" id="againBtn" type="button">Play again</button>
+        <button class="ghost" id="seeLbBtn" type="button">See the board</button>
+      </div>
+    </div>
+  </section>
+
+  <p class="credit">Not affiliated with Jeopardy!</p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var CATS = [
+    {name:"Acronym Soup", clues:[
+      {clue:"You have 40,000 companies in TAM, but only 6,000 run the stack you integrate with. That 6,000 is this.", a:["What is SAM?","What is SOM?","What is your ICP?"]},
+      {clue:"Divide this by CAC and an investor decides whether your growth is a business or a hobby.", a:["What is LTV?","What is ARR?","What is ACV?"]},
+      {clue:"Not the company, and not the job title. The person whose budget the money actually comes out of.", a:["What is the economic buyer?","What is the champion?","What is the end user?"]},
+      {clue:"The acronym that in practice means marketing likes this lead and sales does not.", a:["What is an MQL?","What is an SQL?","What is a PQL?"]},
+      {clue:"The ratio everybody quotes as 3 to 1 and almost nobody can defend.", a:["What is LTV to CAC?","What is pipeline coverage?","What is win rate?"]}
+    ]},
+    {name:"Enrichment Waterfall", clues:[
+      {clue:"Run provider two only on the rows provider one missed, so you stop paying twice for the same email.", a:["What is a waterfall?","What is a rollup?","What is deduplication?"]},
+      {clue:"A provider claims 95% coverage. This is the number that tells you how much of it was right.", a:["What is accuracy?","What is fill rate?","What is deliverability?"]},
+      {clue:"The server accepts mail for every address at the domain, so verification tells you nothing.", a:["What is a catch-all?","What is a hard bounce?","What is a spam trap?"]},
+      {clue:"A perfectly valid email, for a real person, who left the company in March.", a:["What is data decay?","What is a hard bounce?","What is a suppression?"]},
+      {clue:"The check that stops you emailing a VP at the parent company instead of the subsidiary you sourced.", a:["What is domain matching?","What is deduplication?","What is verification?"]}
+    ]},
+    {name:"Clay Country", clues:[
+      {clue:"Clay's AI agent, sent off to read the web and come back with an answer no provider sells.", a:["What is Claygent?","What is Clay Copilot?","What is a Clay formula?"]},
+      {clue:"Test a column on 50 rows before you run it on 50,000, because this is what you are protecting.", a:["What are credits?","What are seats?","What are API keys?"]},
+      {clue:"The escape hatch for pulling data from a tool Clay has no native integration with.", a:["What is the HTTP API enrichment?","What is a CSV import?","What is a lookup table?"]},
+      {clue:"Clay's research agent takes its name from the company plus this word for an autonomous worker.", a:["What is an agent?", "What is a bot?", "What is a crawler?"]},
+      {clue:"Clay's conference for go-to-market teams, held in San Francisco.", a:["What is Sculpt?", "What is Claycon?", "What is Dreamforce?"]}
+    ]},
+    {name:"Cold Email Crimes", clues:[
+      {clue:"Besides a working opt-out, CAN-SPAM requires every commercial email to carry this.", a:["What is a valid physical postal address?","What is a phone number?","What is a company registration number?"]},
+      {clue:"Personalization that is a first name token and a company name, with the seams showing.", a:["What is a mail merge?","What is a snippet?","What is a custom intro?"]},
+      {clue:"“I saw you're hiring SDRs”, sent to a company that has been hiring SDRs continuously since 2019.", a:["What is a fake trigger?","What is intent data?","What is a buying signal?"]},
+      {clue:"Under CAN-SPAM you must honour an opt-out request within this many business days.", a:["What is 10?", "What is 3?", "What is 30?"]},
+      {clue:"Five hundred sends on day one, off a domain you registered on Tuesday.", a:["What is skipping the warmup?","What is volume testing?","What is a sending sequence?"]}
+    ]},
+    {name:"Explain It To Your Grandma", clues:[
+      {clue:"Pipeline.", a:["What is “deals we haven't closed yet”?","What is “money we already made”?","What is “our customer list”?"]},
+      {clue:"Churn.", a:["What is “customers who left”?","What is “customers who complained”?","What is “a busy quarter”?"]},
+      {clue:"Enrichment.", a:["What is “filling in the blanks about a company”?","What is “making the email nicer”?","What is “raising our prices”?"]},
+      {clue:"Intent data.", a:["What is “we can tell they've been shopping”?","What is “what we meant to do”?","What is “their annual report”?"]},
+      {clue:"Attribution.", a:["What is “arguing about which ad gets the credit”?","What is “naming the account owner”?","What is “writing the quarterly report”?"]}
+    ]}
+,
+    {name:"Pipeline Math", clues:[
+      {clue:"Your CAC is $30,000 and the customer pays $2,500 a month. This is the month you break even.", a:["What is month 12?", "What is month 6?", "What is month 24?"]},
+      {clue:"You need $4M in bookings and you close a quarter of what you source. This is the pipeline you need.", a:["What is $16M?", "What is $8M?", "What is $12M?"]},
+      {clue:"The number a sales leader checks to decide whether the quarter is already lost.", a:["What is pipeline coverage?", "What is win rate?", "What is average deal size?"]},
+      {clue:"Revenue from existing customers this year against last year, expansion included.", a:["What is net revenue retention?", "What is gross retention?", "What is churn?"]},
+      {clue:"Unlike its better-known sibling, this number can never exceed 100%.", a:["What is gross retention?", "What is net revenue retention?", "What is win rate?"]}
+    ]},
+    {name:"Signals And Triggers", clues:[
+      {clue:"Someone who bought from you at their last company just started somewhere new.", a:["What is a job change?", "What is a referral?", "What is intent data?"]},
+      {clue:"They posted a req for someone to run the exact tool you replace.", a:["What is a hiring signal?", "What is a technographic?", "What is a firmographic?"]},
+      {clue:"Their site just started loading your competitor's tracking script.", a:["What is a technographic trigger?", "What is a job change?", "What is a funding event?"]},
+      {clue:"Announced at 7am. Every vendor in the category emails them by lunch.", a:["What is a funding round?", "What is an earnings call?", "What is a product launch?"]},
+      {clue:"Anonymous account-level traffic, sold to you as buying intent.", a:["What is reverse IP lookup?", "What is first-party intent?", "What is a pixel?"]}
+    ]},
+    {name:"CRM Hygiene", clues:[
+      {clue:"Two records, one company, created eleven days apart.", a:["What is a duplicate?", "What is a merge?", "What is a parent account?"]},
+      {clue:"The opportunity that has been sitting in Negotiation since March.", a:["What is a stale opp?", "What is a closed-lost?", "What is a slipped deal?"]},
+      {clue:"Forty-one values in the Lead Source picklist, nine of them spelled Webinar.", a:["What is picklist sprawl?", "What is a required field?", "What is a validation rule?"]},
+      {clue:"The CRM field that decides which quarter a deal is forecast into.", a:["What is the close date?", "What is the stage?", "What is the amount?"]},
+      {clue:"Combining those two records without losing a single activity, task or email.", a:["What is deduplication?", "What is enrichment?", "What is an import?"]}
+    ]},
+    {name:"Deliverability", clues:[
+      {clue:"The three DNS records that decide whether anyone trusts your mail.", a:["What are SPF, DKIM and DMARC?", "What are MX, TXT and CNAME?", "What are A, AAAA and PTR?"]},
+      {clue:"Weeks of deliberately boring, low-volume sending before a prospect ever sees you.", a:["What is domain warming?", "What is a sequence?", "What is list hygiene?"]},
+      {clue:"You send from the lookalike so the domain on your business card never takes the hit.", a:["What is a secondary sending domain?", "What is an alias?", "What is a subdomain redirect?"]},
+      {clue:"Stay under 0.3% of this or Google starts throttling you.", a:["What is the spam complaint rate?", "What is the bounce rate?", "What is the unsubscribe rate?"]},
+      {clue:"Gmail's secondary tab, where mail is delivered, not marked spam, and still rarely read.", a:["What is Promotions?", "What is the spam folder?", "What is Updates?"]}
+    ]},
+    {name:"The Buying Committee", clues:[
+      {clue:"Loves your product, controls no budget, fights for you internally anyway.", a:["What is a champion?", "What is an economic buyer?", "What is an end user?"]},
+      {clue:"Never says no. Simply never schedules the next meeting.", a:["What is a blocker?", "What is a champion?", "What is a gatekeeper?"]},
+      {clue:"Appears in week six and adds nine weeks.", a:["What is security review?", "What is procurement?", "What is legal?"]},
+      {clue:"Their entire job is to make the number smaller after you have already won.", a:["What is procurement?", "What is finance?", "What is the end user?"]},
+      {clue:"In MEDDIC, the two Ds stand for decision criteria and this.", a:["What is decision process?", "What is deal size?", "What is discovery?"]}
+    ]}
+  ];
+
+  var VALUES = [200,400,600,800,1000], SECONDS = 20, SPEED_BONUS = 25, BOOTH_CLUES = 3;
+  // same five accents as the home category pills and the board, in the same order
+  var CAT_COLORS = ["#c8e64b","#8fb0e8","#c4a6e8","#ffb35c","#ff9ab8"];
+
+  var el = function(id){ return document.getElementById(id); };
+  var hud = el("hud"), board = el("board"), answersBox = el("answers"), timeFill = el("timeFill");
+  var scoreVal = el("scoreVal"), catLabel = el("catLabel"), worthLabel = el("worthLabel"), clueText = el("clueText");
+  var finalScore = el("finalScore"), finalNote = el("finalNote"), doneLab = el("doneLab"), scoreMath = el("scoreMath");
+  var nameInput = el("nameInput"), titleInput = el("titleInput"), liInput = el("liInput");
+  var saveBtn = el("saveBtn"), savedMsg = el("savedMsg");
+  var lbList = el("lbList"), lbEmpty = el("lbEmpty"), lbLive = el("lbLive"), lbTitle = el("lbTitle");
+  var rulesList = el("rulesList"), homeMeta = el("homeMeta"), doneBtn = el("doneBtn");
+  var lbSubtitle = el("lbSubtitle");
+
+  var SCREENS = ["scHome","scRules","scLb","scBoard","scClue","scDone"];
+  var mode = "solo", score = 0, played = 0, layout = [];
+  var ticker = null, deadline = 0, locked = true, active = null, lastBreakdown = "", backTo = "scHome", lastElapsed = 0;
+  var boothLog = [], boothSecs = 0;
+
+  function show(id){
+    SCREENS.forEach(function(s){ el(s).hidden = s !== id; });
+    hud.hidden = (id === "scHome" || id === "scRules" || id === "scLb");
+  }
+
+  function shuffle(list){
+    var a = list.slice();
+    for (var i = a.length - 1; i > 0; i--){
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  var rollTimer = null, rollGuard = null;
+  function paintScore(v){
+    scoreVal.textContent = (v < 0 ? "−" : "") + Math.abs(Math.round(v));
+    scoreVal.classList.toggle("neg", v < 0);
+  }
+  function setScore(n, roll){
+    var from = score;
+    score = n;
+    if (rollTimer){ cancelAnimationFrame(rollTimer); rollTimer = null; }
+    if (rollGuard){ clearTimeout(rollGuard); rollGuard = null; }
+    if (!roll || from === n || window.matchMedia("(prefers-reduced-motion: reduce)").matches){
+      paintScore(n); return;
+    }
+    var t0 = performance.now(), dur = 520;
+    // rAF does not fire in a backgrounded tab, so the roll can stall and leave a stale number
+    // on screen. This timer is the guarantee that the real score always lands.
+    rollGuard = setTimeout(function(){
+      if (rollTimer){ cancelAnimationFrame(rollTimer); rollTimer = null; }
+      rollGuard = null;
+      paintScore(score);
+    }, dur + 120);
+    (function step(now){
+      var k = Math.min(1, (now - t0) / dur);
+      var e = 1 - Math.pow(1 - k, 3);
+      paintScore(from + (n - from) * e);
+      if (k < 1) rollTimer = requestAnimationFrame(step);
+      else {
+        rollTimer = null;
+        if (rollGuard){ clearTimeout(rollGuard); rollGuard = null; }
+        paintScore(n);
+      }
+    })(t0);
+  }
+
+  var ddCell = null, ACTIVE = [];
+  function buildLayout(){
+    ACTIVE = shuffle(CATS).slice(0, 5);
+    layout = ACTIVE.map(function(c){ return mode === "booth" ? shuffle(c.clues) : c.clues.slice(); });
+    // one Daily Double per board, never in the cheapest row
+    ddCell = { col: Math.floor(Math.random() * 5), row: 1 + Math.floor(Math.random() * 4) };
+  }
+
+  function buildBoard(){
+    board.textContent = "";
+    ACTIVE.forEach(function(c){
+      var h = document.createElement("div");
+      h.className = "cathead";
+      h.textContent = c.name;
+      board.appendChild(h);
+    });
+    VALUES.forEach(function(v, row){
+      ACTIVE.forEach(function(c, col){
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "tile";
+        b.textContent = "$" + v;
+        b.style.animationDelay = ((row * 5 + col) * 14) + "ms";
+        b.addEventListener("click", function(){ openClue(b, col, row, v); });
+        board.appendChild(b);
+      });
+    });
+  }
+
+  function openClue(tile, col, row, value){
+    if (!locked) return;
+    var isDD = ddCell && ddCell.col === col && ddCell.row === row;
+    if (isDD){
+      locked = false; locked = true;
+      value = value * 2;
+      el("ddVal").textContent = "$" + value;
+      var dd = el("ddCard");
+      dd.hidden = false;
+      SFX.daily();
+      var go = function(){
+        dd.hidden = true;
+        document.removeEventListener("click", go, true);
+        document.removeEventListener("keydown", go, true);
+        ddCell = null;
+        reallyOpen(tile, col, row, value);
+      };
+      setTimeout(function(){
+        document.addEventListener("click", go, true);
+        document.addEventListener("keydown", go, true);
+      }, 420);
+      return;
+    }
+    reallyOpen(tile, col, row, value);
+  }
+
+  function reallyOpen(tile, col, row, value){
+    active = { tile: tile, value: value };
+    var q = layout[col][row];
+    catLabel.textContent = ACTIVE[col].name;
+    worthLabel.textContent = "$" + value;
+    clueText.textContent = q.clue;
+
+    var order = shuffle([0,1,2]);
+    answersBox.textContent = "";
+    order.forEach(function(origIndex, slot){
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "ans";
+      b.dataset.correct = origIndex === 0 ? "1" : "0";
+      var k = document.createElement("span");
+      k.className = "key"; k.textContent = String(slot + 1);
+      var txt = document.createElement("span");
+      txt.textContent = q.a[origIndex];
+      b.appendChild(k); b.appendChild(txt);
+      b.addEventListener("click", function(){ answer(b); });
+      answersBox.appendChild(b);
+    });
+
+    SFX.pick();
+    tile.classList.add("chosen");
+    expandFrom(tile, function reveal(){
+      // carry the board's category colour onto the clue card, so the two screens
+      // are visibly the same object rather than two unrelated layouts
+      el("clueCard").style.setProperty("--catc", CAT_COLORS[col % CAT_COLORS.length]);
+      el("clueProg").textContent = (played + 1) + " / " + totalClues();
+      el("timeNum").textContent = SECONDS;
+      el("timeNum").classList.remove("hurry");
+      timeFill.style.transform = "scaleX(1)";
+      timeFill.classList.remove("hurry");
+      el("clueHint").hidden = false;
+      show("scClue");
+      var sc = el("scClue");
+      sc.classList.remove("enter"); clueText.classList.remove("enter");
+      void sc.offsetWidth;
+      sc.classList.add("enter"); clueText.classList.add("enter");
+    }, function start(){
+      locked = false;
+      deadline = Date.now() + SECONDS * 1000;
+      lastTickSec = 99;
+      SFX.music(SECONDS);
+      if (ticker) clearInterval(ticker);
+      ticker = setInterval(tick, 50);
+    });
+  }
+
+  function totalClues(){ return mode === "booth" ? BOOTH_CLUES : 25; }
+
+  var lastTickSec = 99;
+  function tick(){
+    var left = Math.max(0, (deadline - Date.now()) / 1000);
+    timeFill.style.transform = "scaleX(" + (left / SECONDS).toFixed(4) + ")";
+    var shown = Math.ceil(left);
+    if (String(shown) !== el("timeNum").textContent) el("timeNum").textContent = shown;
+    if (left <= 5){
+      timeFill.classList.add("hurry");
+      el("timeNum").classList.add("hurry");
+      var s = Math.ceil(left);
+      if (s !== lastTickSec && s > 0){ lastTickSec = s; SFX.tickOnce(); }
+    }
+    if (left <= 0){
+      clearInterval(ticker); ticker = null;
+      if (!locked){ SFX.stop(); SFX.timeup(); answer(null); }
+    }
+  }
+
+  function answer(btn){
+    if (locked) return;
+    locked = true;
+    var leftExact = Math.max(0, (deadline - Date.now()) / 1000);
+    var left = Math.floor(leftExact);
+    lastElapsed = Math.max(0, SECONDS - leftExact);
+    if (ticker){ clearInterval(ticker); ticker = null; }
+    var right = btn && btn.dataset.correct === "1";
+    SFX.stop();
+    if (btn){ if (right) SFX.right(); else SFX.wrong(); }
+
+    if (btn){ flashScreen(right); FX.burst(right); }
+
+    // A timeout used to produce no feedback whatsoever: the bar emptied and the
+    // board came back. Say what happened.
+    var hint = el("clueHint");
+    hint.hidden = false;
+    hint.className = "cluehint verdict " + (btn ? (right ? "ok" : "no") : "out");
+    hint.textContent = btn
+      ? (right ? "Correct" : "No. The right one is lit up.")
+      : (mode === "booth" ? "Out of time. No points." : "Out of time. That one costs you nothing.");
+
+    if (mode === "booth"){
+      var gained = right ? active.value + Math.round(leftExact * SPEED_BONUS) : 0;
+      boothLog.push({ value: active.value, secs: lastElapsed, points: gained, right: right });
+      boothSecs += lastElapsed;
+      if (gained) setScore(score + gained, true);
+    } else {
+      if (right) setScore(score + active.value, true);
+      else if (btn) setScore(score - active.value, true);
+    }
+
+    Array.prototype.forEach.call(answersBox.children, function(b){
+      b.disabled = true;
+      if (b.dataset.correct === "1") b.classList.add("right");
+      else if (b === btn) b.classList.add("wrong");
+    });
+
+    active.tile.classList.remove("chosen");
+    active.tile.disabled = true;
+    played++;
+    var wasRight = right, bonus = left;
+    setTimeout(function(){
+      var done = mode === "booth" ? (played >= BOOTH_CLUES) : (played >= 25);
+      if (done) finish(wasRight, bonus); else show("scBoard");
+    }, 1300);
+  }
+
+  function finish(wasRight, bonus){
+    if (ticker){ clearInterval(ticker); ticker = null; }
+    locked = true;
+    finalScore.textContent = (score < 0 ? "−" : "") + Math.abs(score);
+    var note;
+    if (mode === "booth"){
+      doneLab.textContent = "Your score";
+      var got = boothLog.filter(function(x){ return x.right; }).length;
+      lastBreakdown = boothLog.map(function(x){
+        return "$" + x.value + (x.right ? " +" + x.points : " miss");
+      }).join("   ·   ") + "    |    " + boothSecs.toFixed(2) + "s total";
+      if (got === BOOTH_CLUES) note = "Three for three in " + boothSecs.toFixed(2) + " seconds. Put your name up.";
+      else if (got === 0) note = "Nothing landed. The board is undefeated so far today.";
+      else note = got + " of " + BOOTH_CLUES + " right. Put your name up and see where you sit.";
+    } else {
+      doneLab.textContent = "Final score";
+      if (score >= 10000) note = "A clean sweep. You do this for a living and it shows.";
+      else if (score >= 6000) note = "Strong. Put your name up before somebody beats it.";
+      else if (score > 0) note = "Positive and still standing.";
+      else if (score === 0) note = "Dead even. The most go-to-market result possible.";
+      else note = "Negative. Alex would have been gentle about it.";
+    }
+    // was assigned BEFORE lastBreakdown was computed above, so booth players saw the
+    // previous run's breakdown (and nothing at all on their first run)
+    scoreMath.textContent = mode === "booth" ? lastBreakdown : "";
+    finalNote.textContent = note;
+    show("scDone");
+    // Auto-focus throws up the on-screen keyboard and shoves the score the player
+    // just earned off the top of the phone. Pointer devices only.
+    if (window.matchMedia("(pointer:fine)").matches) nameInput.focus();
+  }
+
+  function startRun(){
+    if (ticker){ clearInterval(ticker); ticker = null; }
+    el("ddCard").hidden = true;
+    setScore(0); played = 0; locked = true; active = null; lastBreakdown = "";
+    boothLog = []; boothSecs = 0;
+    savedMsg.textContent = ""; nameInput.value = ""; titleInput.value = ""; liInput.value = "";
+    saveBtn.disabled = false; scoreMath.textContent = "";
+    buildLayout(); buildBoard();
+    show("scBoard");
+  }
+
+  function setMode(next){
+    mode = next;
+    el("modeBooth").setAttribute("aria-pressed", String(next === "booth"));
+    el("modeSolo").setAttribute("aria-pressed", String(next === "solo"));
+    doneBtn.hidden = next === "booth";
+    lbTitle.textContent = next === "booth" ? "Booth Board" : "Full Board";
+    lbSubtitle.textContent = next === "booth"
+      ? "Three clues. Top three at 3pm get paid."
+      : "A full board of 25 clues, highest total wins";
+    homeMeta.textContent = next === "booth"
+      ? "3 clues · 20 seconds each · about a minute"
+      : "10 categories · 5 per game · 20 seconds each";
+    rulesList.textContent = "";
+    var lines = next === "booth"
+      ? ["Pick <b>three clues</b>, any categories you like. Twenty seconds each.",
+         "Each right answer scores the tile value plus <b>25 points for every second left</b>. Speed is the tiebreaker.",
+         "Answer in the form of a question, the way Alex intended. A miss just scores zero.",
+         "<b>Top three on the board at 3pm get a gift card</b>: $50, $25 and $10, sent after the show."]
+      : ["Pick any tile. Twenty seconds to answer.",
+         "A right answer <b>adds</b> the value, a wrong one <b>subtracts</b> it. Running out of time costs nothing.",
+         "Answer in the form of a question, the way Alex intended.",
+         "Clear all twenty-five, or cash out whenever you like, then put your name on the board."];
+    lines.forEach(function(h, i){
+      var li = document.createElement("li");
+      var n = document.createElement("span");
+      n.className = "n"; n.textContent = String(i + 1);
+      var s = document.createElement("span");
+      s.innerHTML = h;
+      li.appendChild(n); li.appendChild(s);
+      rulesList.appendChild(li);
+    });
+    subscribe();
+  }
+
+  // ---- canvas: parallax starfield + celebration particles ----
+  var FX = (function(){
+    var cv = el("stars"), cx = cv.getContext("2d"), w = 0, h = 0, dpr = 1;
+    var cvT = el("burstfx"), cxT = cvT.getContext("2d");
+    var stars = [], parts = [], raf = null;
+    var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    function size(){
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = cv.clientWidth; h = cv.clientHeight;
+      cv.width = Math.floor(w * dpr); cv.height = Math.floor(h * dpr);
+      cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cvT.width = Math.floor(w * dpr); cvT.height = Math.floor(h * dpr);
+      cxT.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function seed(){
+      stars = [];
+      var n = Math.round(Math.min(190, Math.max(70, (w * h) / 9000)));
+      for (var i = 0; i < n; i++){
+        var depth = Math.random();
+        stars.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          r: 0.5 + depth * 1.5,
+          v: 0.05 + depth * 0.42,
+          a: 0.22 + depth * 0.62,
+          tw: Math.random() * Math.PI * 2
+        });
+      }
+    }
+
+    function burst(good){
+      var cxp = w / 2, cyp = h / 2;
+      for (var i = 0; i < 54; i++){
+        var ang = Math.random() * Math.PI * 2;
+        var sp = 2.4 + Math.random() * 7.5;
+        parts.push({
+          x: cxp, y: cyp,
+          vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 1.4,
+          life: 1, r: 1.6 + Math.random() * 3.4,
+          c: good ? (Math.random() < 0.5 ? "255,204,0" : "200,230,75") : "123,45,69"
+        });
+      }
+      if (!raf) loop();
+    }
+
+    function loop(){
+      cx.clearRect(0, 0, w, h);
+      var i, s, p;
+      for (i = 0; i < stars.length; i++){
+        s = stars[i];
+        if (!reduced){
+          s.y += s.v; s.tw += 0.03;
+          if (s.y > h + 2){ s.y = -2; s.x = Math.random() * w; }
+        }
+        var tw = reduced ? 1 : 0.72 + Math.sin(s.tw) * 0.28;
+        cx.globalAlpha = s.a * tw;
+        cx.fillStyle = "#ffffff";
+        cx.beginPath(); cx.arc(s.x, s.y, s.r, 0, 6.283); cx.fill();
+      }
+      cxT.clearRect(0, 0, w, h);
+      for (i = parts.length - 1; i >= 0; i--){
+        p = parts[i];
+        p.x += p.vx; p.y += p.vy; p.vy += 0.17; p.vx *= 0.99; p.life -= 0.016;
+        if (p.life <= 0){ parts.splice(i, 1); continue; }
+        cxT.globalAlpha = Math.max(0, p.life);
+        cxT.fillStyle = "rgba(" + p.c + ",1)";
+        cxT.beginPath(); cxT.arc(p.x, p.y, p.r, 0, 6.283); cxT.fill();
+      }
+      cx.globalAlpha = 1; cxT.globalAlpha = 1;
+      raf = requestAnimationFrame(loop);
+    }
+
+    size(); seed(); loop();
+    var rt = null;
+    window.addEventListener("resize", function(){
+      clearTimeout(rt);
+      rt = setTimeout(function(){ size(); seed(); }, 160);
+    });
+
+    return { burst: burst };
+  })();
+
+  function flashScreen(good){
+    var f = el("flash");
+    f.className = "flash";
+    void f.offsetWidth;
+    f.className = "flash " + (good ? "good" : "bad");
+  }
+
+  // Grow the chosen tile into the clue card, then dissolve off it.
+  // reveal() puts the clue screen up FIRST, so the slab is always covering real
+  // content and melts away to uncover it, rather than blinking out over nothing.
+  // start() begins the clock, once the move has landed.
+  function expandFrom(tile, reveal, start){
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches){ reveal(); start(); return; }
+    var r = tile.getBoundingClientRect();
+    reveal();
+    var card = el("clueCard");
+    var cr = card.getBoundingClientRect();
+    if (!r.width || !cr.width){ start(); return; }
+
+    var d = document.createElement("div");
+    d.className = "expander";
+    d.style.left = r.left + "px";
+    d.style.top = r.top + "px";
+    d.style.width = r.width + "px";
+    d.style.height = r.height + "px";
+    document.body.appendChild(d);
+
+    var DUR = 440;
+    var move = "translate(" + (cr.left - r.left) + "px," + (cr.top - r.top) + "px) scale(" +
+               (cr.width / r.width) + "," + (cr.height / r.height) + ")";
+    var gone = false;
+    function cleanup(){ if (gone) return; gone = true; if (d.parentNode) d.parentNode.removeChild(d); start(); }
+
+    if (typeof d.animate === "function"){
+      // Two animations, deliberately. A keyframe easing applies per SEGMENT, so
+      // folding opacity into the eased transform track made the slab 2/3 gone
+      // before it had travelled anywhere. The move keeps its easing; the fade
+      // runs linear and starts late, so there is a solid slab to read first.
+      d.animate([
+        { transform:"translate(0,0) scale(1,1)", borderRadius:"3px"  },
+        { transform:move,                        borderRadius:"14px" }
+      ], { duration:DUR, easing:"cubic-bezier(.32,.86,.28,1)", fill:"forwards" });
+      var a = d.animate([
+        { opacity:1 }, { opacity:1, offset:.4 }, { opacity:0 }
+      ], { duration:DUR, easing:"linear", fill:"forwards" });
+      a.onfinish = cleanup;
+      a.oncancel = cleanup;
+    } else {
+      d.style.transition = "transform " + DUR + "ms cubic-bezier(.32,.86,.28,1), opacity " + DUR + "ms ease";
+      requestAnimationFrame(function(){ d.style.transform = move; d.style.opacity = "0"; });
+    }
+    // rAF-driven animations stall in a backgrounded tab; this is the guarantee
+    // that the slab is always removed and the clock always starts.
+    setTimeout(cleanup, DUR + 220);
+  }
+
+  // ---- sound: an original think-cue, not the real one ----
+  var SFX = (function(){
+    var ctx = null, nodes = [], on = true;
+    function ac(){
+      if (!ctx){
+        var C = window.AudioContext || window.webkitAudioContext;
+        if (!C) return null;
+        ctx = new C();
+      }
+      if (ctx.state === "suspended") ctx.resume();
+      return ctx;
+    }
+    function blip(freq, at, dur, type, vol){
+      var c = ac(); if (!c) return null;
+      var o = c.createOscillator(), g = c.createGain();
+      o.type = type || "triangle";
+      o.frequency.setValueAtTime(freq, at);
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(vol || 0.16, at + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+      o.connect(g); g.connect(c.destination);
+      o.start(at); o.stop(at + dur + 0.03);
+      return o;
+    }
+    var MEL = [523.25,622.25,783.99,698.46, 622.25,523.25,466.16,523.25,
+               415.30,523.25,622.25,587.33, 523.25,466.16,392.00,466.16];
+    var BASS = [130.81,130.81,196.00,196.00, 155.56,155.56,174.61,174.61];
+    function music(sec){
+      stop();
+      if (!on) return;
+      var c = ac(); if (!c) return;
+      var t0 = c.currentTime + 0.05, step = 0.25, bar = MEL.length * step;
+      var loops = Math.ceil(sec / bar), i, b, L;
+      for (L = 0; L < loops; L++){
+        var base = t0 + L * bar;
+        for (i = 0; i < MEL.length; i++){
+          var at = base + i * step;
+          if (at > t0 + sec) break;
+          nodes.push(blip(MEL[i], at, 0.22, "triangle", 0.085));
+        }
+        for (b = 0; b < BASS.length; b++){
+          var bt = base + b * (step * 2);
+          if (bt > t0 + sec) break;
+          nodes.push(blip(BASS[b], bt, 0.42, "sine", 0.13));
+        }
+      }
+    }
+    function stop(){
+      nodes.forEach(function(n){ if (n){ try { n.stop(); } catch (e) {} } });
+      nodes = [];
+    }
+    function right(){ var c = ac(); if (!on || !c) return; var t = c.currentTime; blip(659.25,t,0.16,"triangle",0.2); blip(987.77,t+0.11,0.3,"triangle",0.2); }
+    function wrong(){ var c = ac(); if (!on || !c) return; var t = c.currentTime; blip(138.59,t,0.34,"sawtooth",0.12); blip(103.83,t+0.02,0.36,"square",0.08); }
+    function timeup(){ var c = ac(); if (!on || !c) return; blip(220,c.currentTime,0.5,"square",0.1); }
+    function pick(){ var c = ac(); if (!on || !c) return; blip(880,c.currentTime,0.09,"square",0.09); }
+    function tickOnce(){ var c = ac(); if (!on || !c) return; blip(1320,c.currentTime,0.05,"square",0.07); }
+    function daily(){
+      var c = ac(); if (!on || !c) return;
+      var t = c.currentTime;
+      [392.00,523.25,659.25,783.99,1046.50,1318.51].forEach(function(f,i){
+        blip(f, t + i*0.075, 0.26, "triangle", 0.2);
+      });
+      blip(98, t, 1.0, "sine", 0.18);
+    }
+    function sting(){
+      var c = ac(); if (!on || !c) return;
+      var t = c.currentTime;
+      [523.25,622.25,783.99,1046.50].forEach(function(f,i){ blip(f, t + i*0.1, 0.3, "triangle", 0.18); });
+      blip(130.81, t, 0.8, "sine", 0.16);
+      blip(261.63, t + 0.4, 0.6, "sine", 0.1);
+    }
+    return { music:music, stop:stop, right:right, wrong:wrong, timeup:timeup, pick:pick, sting:sting,
+             tickOnce:tickOnce, daily:daily,
+             toggle:function(){ on = !on; if (!on) stop(); return on; } };
+  })();
+
+  // ---- leaderboard ----
+  var dbRef = null, unsub = null;
+
+  // Only ever build an href from a real linkedin.com URL. Anything else renders as plain text,
+  // so a stored "javascript:" value or a lookalike host can never become a clickable link.
+  function safeLinkedIn(raw){
+    var s = (raw || "").trim();
+    if (!s) return "";
+    if (!/^https?:\/\//i.test(s)) s = "https://" + s;
+    var u;
+    try { u = new URL(s); } catch (e) { return ""; }
+    if (u.protocol !== "https:" && u.protocol !== "http:") return "";
+    var host = u.hostname.toLowerCase().replace(/^www\./, "");
+    if (host !== "linkedin.com" && !/\.linkedin\.com$/.test(host)) return "";
+    u.protocol = "https:";
+    return u.toString();
+  }
+
+  function paintMini(rows){
+    var list = el("miniList"), empty = el("miniEmpty");
+    list.textContent = "";
+    var top = rows.slice(0, 3);
+    if (!top.length){ empty.hidden = false; return; }
+    empty.hidden = true;
+    top.forEach(function(r, i){
+      var li = document.createElement("li");
+      li.className = "minirow" + (i === 0 ? " lead" : "");
+      var rk = document.createElement("span");
+      rk.className = "r"; rk.textContent = String(i + 1);
+      var nm = document.createElement("div");
+      nm.className = "nm";
+      var who;
+      if (r.url){
+        who = document.createElement("a");
+        who.href = r.url; who.target = "_blank"; who.rel = "noopener noreferrer nofollow";
+      } else {
+        who = document.createElement("span");
+      }
+      who.textContent = r.name || "Someone";
+      nm.appendChild(who);
+      if (r.title){
+        var small = document.createElement("small");
+        small.textContent = r.title;
+        nm.appendChild(small);
+      }
+      var sc = document.createElement("span");
+      sc.className = "sc";
+      sc.textContent = (r.score < 0 ? "\u2212" : "") + Math.abs(r.score);
+      li.appendChild(rk); li.appendChild(nm); li.appendChild(sc);
+      list.appendChild(li);
+    });
+  }
+
+  function paintRows(rows){
+    lbList.textContent = "";
+    if (!rows.length){ lbEmpty.hidden = false; return; }
+    lbEmpty.hidden = true;
+    rows.forEach(function(r, i){
+      var li = document.createElement("li");
+      li.className = "lbrow" + (i === 0 ? " lead" : "");
+      var rank = document.createElement("span");
+      rank.className = "rank"; rank.textContent = String(i + 1);
+      var who = document.createElement("div");
+      who.className = "lbwho";
+      var nameNode = document.createElement("span");
+      nameNode.className = "nm";
+      nameNode.textContent = r.name || "Someone";
+      who.appendChild(nameNode);
+      var sub = [];
+      if (r.title) sub.push(r.title);
+      if (r.secs !== null) sub.push(r.secs.toFixed(2) + "s");
+      if (sub.length){
+        var role = document.createElement("span");
+        role.className = "role"; role.textContent = sub.join("  ·  ");
+        who.appendChild(role);
+      }
+      if (r.url){
+        var cta = document.createElement("a");
+        cta.className = "lb-cta";
+        cta.href = r.url;
+        cta.target = "_blank";
+        cta.rel = "noopener noreferrer nofollow";
+        cta.textContent = "Check out their LinkedIn";
+        who.appendChild(cta);
+      }
+      var pts = document.createElement("span");
+      pts.className = "pts";
+      pts.textContent = (r.score < 0 ? "−" : "") + Math.abs(r.score);
+      li.appendChild(rank); li.appendChild(who); li.appendChild(pts);
+      lbList.appendChild(li);
+    });
+  }
+
+  function noBoard(label, msg){
+    lbLive.textContent = label;
+    lbList.textContent = "";
+    lbEmpty.textContent = msg;
+    lbEmpty.hidden = false;
+  }
+
+  function subscribe(){
+    if (unsub){ try { unsub(); } catch (e) {} unsub = null; }
+    if (!dbRef) return;
+    lbLive.textContent = "Live";
+    lbEmpty.textContent = "No scores yet. First one up owns it.";
+    try {
+      unsub = dbRef.collection(mode === "booth" ? "booth" : "solo")
+        .orderBy("score","desc").limit(10).onSnapshot(
+          function(snap){
+            var mapped = snap.docs.map(function(d){
+              var v = d.data() || {};
+              return {
+                name: String(v.name || ""),
+                title: String(v.title || "").slice(0,60),
+                secs: (typeof v.secs === "number" && isFinite(v.secs)) ? v.secs : null,
+                url: safeLinkedIn(String(v.url || "")),
+                score: Number(v.score) || 0
+              };
+            });
+            paintRows(mapped);
+            paintMini(mapped);
+          },
+          function(){ noBoard("Offline", "The board lost its connection. Your score still counts here."); }
+        );
+    } catch (e) {
+      noBoard("Local", "Sign in to Claude to see the shared board. The game works either way.");
+    }
+  }
+
+  (async function wireDb(){
+    var api = window.claude, db = null;
+    if (api && typeof api.use === "function"){
+      try { db = await api.use("db"); } catch (e) { db = null; }
+    }
+    if (!db){ noBoard("Local", "Sign in to Claude to see the shared board. The game works either way."); return; }
+    dbRef = db;
+    subscribe();
+  })();
+
+  async function saveScore(){
+    var name = nameInput.value.trim();
+    if (!name){ nameInput.focus(); savedMsg.textContent = "Name first."; return; }
+    saveBtn.disabled = true;
+    savedMsg.textContent = "Posting…";
+    if (!dbRef){ savedMsg.textContent = "Saved on this screen only."; return; }
+    try {
+      await dbRef.collection(mode === "booth" ? "booth" : "solo").doc().set({
+        name: name.slice(0,40),
+        title: titleInput.value.trim().slice(0,60),
+        url: safeLinkedIn(liInput.value),
+        score: score,
+        secs: mode === "booth" ? Number(boothSecs.toFixed(2)) : null,
+        at: Date.now()
+      });
+      savedMsg.textContent = "You are on the board.";
+    } catch (err) {
+      savedMsg.textContent = "Could not post that one. Your score still stands here.";
+    }
+  }
+
+  // ---- wiring ----
+  el("playBtn").addEventListener("click", function(){ SFX.sting(); startRun(); });
+  el("rulesBtn").addEventListener("click", function(){ backTo = "scHome"; show("scRules"); });
+  el("lbBtn").addEventListener("click", function(){ backTo = "scHome"; show("scLb"); });
+  el("seeLbBtn").addEventListener("click", function(){ backTo = "scDone"; show("scLb"); });
+  el("againBtn").addEventListener("click", startRun);
+  el("quitBtn").addEventListener("click", function(){
+    if (ticker){ clearInterval(ticker); ticker = null; }
+    SFX.stop(); locked = true;
+    show("scHome");
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-back]"), function(b){
+    b.addEventListener("click", function(){ show(backTo); });
+  });
+  el("resetBtn").addEventListener("click", startRun);
+  doneBtn.addEventListener("click", function(){ if (played > 0) finish(false, 0); });
+  el("modeBooth").addEventListener("click", function(){ setMode("booth"); startRun(); });
+  el("modeSolo").addEventListener("click", function(){ setMode("solo"); startRun(); });
+  saveBtn.addEventListener("click", saveScore);
+  [nameInput, titleInput, liInput].forEach(function(inp){
+    inp.addEventListener("keydown", function(e){
+      if (e.key === "Enter"){ e.preventDefault(); saveScore(); }
+    });
+  });
+  var soundBtn = el("soundBtn");
+  soundBtn.addEventListener("click", function(){
+    var now = SFX.toggle();
+    soundBtn.setAttribute("aria-pressed", String(now));
+    soundBtn.setAttribute("aria-label", now ? "Sound on" : "Sound off");
+  });
+  document.addEventListener("keydown", function(e){
+    if (!locked && (e.key === "1" || e.key === "2" || e.key === "3")){
+      var b = answersBox.children[Number(e.key) - 1];
+      if (b) answer(b);
+    }
+  });
+
+  (function coldOpen(){
+    var seq = el("introSeq"), grid = el("introGrid");
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches){ seq.hidden = true; return; }
+    for (var i = 0; i < 15; i++){
+      var cell = document.createElement("i");
+      cell.style.animationDelay = (55 + i * 38) + "ms";
+      grid.appendChild(cell);
+    }
+    var killed = false;
+    function kill(){
+      if (killed) return;
+      killed = true;
+      seq.hidden = true;
+      document.removeEventListener("keydown", kill);
+    }
+    el("skipBtn").addEventListener("click", kill);
+    document.addEventListener("keydown", kill);
+    seq.addEventListener("click", kill);
+    setTimeout(kill, 3450);
+  })();
+
+  (function decorateHome(){
+    var pills = el("catPills");
+    CATS.forEach(function(c){
+      var li = document.createElement("li");
+      li.textContent = c.name;
+      pills.appendChild(li);
+    });
+  })();
+
+  // Operators open the page with #booth: that view gets the controls and booth scoring.
+  // The link everyone else gets is just the game.
+  var isOperator = (location.hash || "").toLowerCase() === "#booth";
+  el("opbar").hidden = !isOperator;
+  setMode(isOperator ? "booth" : "solo");
+  show("scHome");
+})();
+</script>
+
+</body>
+</html>
