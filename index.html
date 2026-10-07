@@ -1335,7 +1335,6 @@ button{font-family:inherit;cursor:pointer}
   })();
 
   // ---- leaderboard ----
-  var dbRef = null, unsub = null;
 
   // Only ever build an href from a real linkedin.com URL. Anything else renders as plain text,
   // so a stored "javascript:" value or a lookalike host can never become a clickable link.
@@ -1434,64 +1433,79 @@ button{font-family:inherit;cursor:pointer}
     lbEmpty.hidden = false;
   }
 
-  function subscribe(){
-    if (unsub){ try { unsub(); } catch (e) {} unsub = null; }
-    if (!dbRef) return;
-    lbLive.textContent = "Live";
-    lbEmpty.textContent = "No scores yet. First one up owns it.";
-    try {
-      unsub = dbRef.collection(mode === "booth" ? "booth" : "solo")
-        .orderBy("score","desc").limit(10).onSnapshot(
-          function(snap){
-            var mapped = snap.docs.map(function(d){
-              var v = d.data() || {};
-              return {
-                name: String(v.name || ""),
-                title: String(v.title || "").slice(0,60),
-                secs: (typeof v.secs === "number" && isFinite(v.secs)) ? v.secs : null,
-                url: safeLinkedIn(String(v.url || "")),
-                score: Number(v.score) || 0
-              };
-            });
-            paintRows(mapped);
-            paintMini(mapped);
-          },
-          function(){ noBoard("Offline", "The board lost its connection. Your score still counts here."); }
-        );
-    } catch (e) {
-      noBoard("Local", "Sign in to Claude to see the shared board. The game works either way.");
-    }
+  // ---- leaderboard: Supabase REST, no sign-in required ----
+  var SB_URL = "https://vgctovgghjjitoabqvxw.supabase.co";
+  var SB_KEY = "sb_publishable__s9sW8D9LdyCRAYVYHRW4A_1VWSSKXo";
+  function sbHead(extra){
+    var h = { apikey: SB_KEY, Authorization: "Bearer " + SB_KEY };
+    if (extra) for (var k in extra) h[k] = extra[k];
+    return h;
   }
 
-  (async function wireDb(){
-    var api = window.claude, db = null;
-    if (api && typeof api.use === "function"){
-      try { db = await api.use("db"); } catch (e) { db = null; }
-    }
-    if (!db){ noBoard("Local", "Sign in to Claude to see the shared board. The game works either way."); return; }
-    dbRef = db;
-    subscribe();
-  })();
+  var pollTimer = null;
 
-  async function saveScore(){
+  function loadBoard(){
+    var q = SB_URL + "/rest/v1/jeopardy_scores" +
+      "?select=name,title,url,score,secs" +
+      "&mode=eq." + encodeURIComponent(mode) +
+      "&order=score.desc,created_at.asc&limit=10";
+    return fetch(q, { headers: sbHead() })
+      .then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(rows){
+        var mapped = rows.map(function(v){
+          return {
+            name: String(v.name || ""),
+            title: String(v.title || "").slice(0, 60),
+            url: safeLinkedIn(String(v.url || "")),
+            secs: (v.secs === null || v.secs === undefined) ? null : Number(v.secs),
+            score: Number(v.score) || 0
+          };
+        });
+        lbLive.textContent = "Live";
+        lbEmpty.textContent = "No scores yet. The first name on this board stays at the top until somebody beats it.";
+        paintRows(mapped);
+        paintMini(mapped);
+      })
+      .catch(function(){
+        noBoard("Offline", "Could not reach the leaderboard. The game still works.");
+      });
+  }
+
+  function subscribe(){
+    if (pollTimer) clearInterval(pollTimer);
+    loadBoard();
+    pollTimer = setInterval(function(){
+      if (!document.hidden) loadBoard();
+    }, 20000);
+  }
+
+  function saveScore(){
     var name = nameInput.value.trim();
     if (!name){ nameInput.focus(); savedMsg.textContent = "Name first."; return; }
     saveBtn.disabled = true;
-    savedMsg.textContent = "Posting…";
-    if (!dbRef){ savedMsg.textContent = "Saved on this screen only."; return; }
-    try {
-      await dbRef.collection(mode === "booth" ? "booth" : "solo").doc().set({
-        name: name.slice(0,40),
-        title: titleInput.value.trim().slice(0,60),
-        url: safeLinkedIn(liInput.value),
-        score: score,
-        secs: mode === "booth" ? Number(boothSecs.toFixed(2)) : null,
-        at: Date.now()
-      });
+    savedMsg.textContent = "Posting\u2026";
+    var body = {
+      name: name.slice(0, 40),
+      title: titleInput.value.trim().slice(0, 60) || null,
+      url: safeLinkedIn(liInput.value) || null,
+      score: score,
+      mode: mode,
+      secs: mode === "booth" ? Number(boothSecs.toFixed(2)) : null
+    };
+    fetch(SB_URL + "/rest/v1/jeopardy_scores", {
+      method: "POST",
+      headers: sbHead({ "Content-Type": "application/json", Prefer: "return=minimal" }),
+      body: JSON.stringify(body)
+    })
+    .then(function(r){
+      if (!r.ok) throw new Error(r.status);
       savedMsg.textContent = "You are on the board.";
-    } catch (err) {
+      return loadBoard();
+    })
+    .catch(function(){
       savedMsg.textContent = "Could not post that one. Your score still stands here.";
-    }
+      saveBtn.disabled = false;
+    });
   }
 
   // ---- wiring ----
